@@ -1,0 +1,1271 @@
+import type {
+  Attachment,
+  ChecklistResultStatus,
+  ChecklistTemplate,
+  Finding,
+  FindingSeverity,
+  Inspection,
+  Prisma,
+  UserRole,
+} from "@prisma/client";
+
+import { AppError } from "../lib/errors.js";
+import { prisma } from "../lib/prisma.js";
+import { getAttachmentStorageProvider } from "../lib/storage-provider.js";
+import { recordAuditLog } from "./audit-logs.js";
+
+export interface ListInspectionsInput {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  businessId?: string;
+  inspectorId?: string;
+  limit: number;
+  page: number;
+  permitRecordId?: string;
+  skip: number;
+  status?: Inspection["status"];
+}
+
+export interface CreateInspectionInput {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  businessId: string;
+  accuracyMeters?: number;
+  inspectorId?: string;
+  latitude?: number;
+  longitude?: number;
+  notes?: string;
+  permitRecordId: string;
+  scheduledAt: string;
+}
+
+export interface AssignInspectionInput {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  id: string;
+  inspectorId: string;
+}
+
+export interface UpdateInspectionStatusInput {
+  accuracyMeters?: number;
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  id: string;
+  latitude?: number;
+  longitude?: number;
+  notes?: string;
+  status: Inspection["status"];
+}
+
+export interface PublicInspection {
+  business: {
+    businessName: string;
+    id: string;
+  };
+  completedAt?: string;
+  createdAt: string;
+  id: string;
+  inspectorId?: string;
+  location?: {
+    accuracyMeters?: number;
+    latitude: number;
+    longitude: number;
+  };
+  notes?: string;
+  permit: {
+    id: string;
+    permitNumber: string;
+  };
+  scheduledAt: string;
+  startedAt?: string;
+  status: Lowercase<`${Inspection["status"]}`>;
+  updatedAt: string;
+}
+
+export interface PublicChecklistTemplate {
+  code: string;
+  createdAt: string;
+  description?: string;
+  id: string;
+  isActive: boolean;
+  module: string;
+  sortOrder: number;
+  title: string;
+  updatedAt: string;
+}
+
+export interface PublicChecklistResult {
+  createdAt: string;
+  id: string;
+  inspectionId: string;
+  remarks?: string;
+  status: Lowercase<`${ChecklistResultStatus}`>;
+  template: {
+    code: string;
+    id: string;
+    module: string;
+    title: string;
+  };
+  updatedAt: string;
+}
+
+export interface PublicFinding {
+  checklistResultId?: string;
+  correctiveAction?: string;
+  createdAt: string;
+  description: string;
+  dueDate?: string;
+  id: string;
+  inspectionId: string;
+  location?: {
+    accuracyMeters?: number;
+    latitude: number;
+    longitude: number;
+  };
+  resolvedAt?: string;
+  severity: Lowercase<`${FindingSeverity}`>;
+  title: string;
+  updatedAt: string;
+}
+
+export interface PublicInspectionSummary {
+  canceled: number;
+  completed: number;
+  inProgress: number;
+  overdue: number;
+  scheduled: number;
+  total: number;
+}
+
+export interface PublicAttachment {
+  capturedAt?: string;
+  createdAt: string;
+  fileName: string;
+  fileSizeBytes: number;
+  findingId?: string;
+  id: string;
+  inspectionId: string;
+  location?: {
+    accuracyMeters?: number;
+    latitude: number;
+    longitude: number;
+  };
+  mimeType: string;
+  storageKey: string;
+  updatedAt: string;
+}
+
+export interface PublicAttachmentUploadIntent {
+  expiresInSeconds?: number;
+  provider: "local" | "supabase";
+  requiresMetadataCreate: boolean;
+  storageKey: string;
+  uploadHeaders: Record<string, string>;
+  uploadMethod: "PUT";
+  uploadPath?: string;
+  uploadStrategy: "api_binary_upload" | "supabase_signed_url";
+  uploadToken?: string;
+  uploadUrl?: string;
+}
+
+export interface PublicAttachmentDownloadIntent {
+  downloadMethod: "GET";
+  downloadPath?: string;
+  downloadStrategy: "api_binary_download" | "supabase_signed_url";
+  downloadUrl?: string;
+  expiresInSeconds?: number;
+  provider: "local" | "supabase";
+}
+
+export interface PublicInspectionHistoryEvent {
+  detail?: string;
+  entityId?: string;
+  occurredAt: string;
+  title: string;
+  type:
+    | "inspection_created"
+    | "inspection_started"
+    | "inspection_completed"
+    | "checklist_result_recorded"
+    | "finding_logged"
+    | "finding_resolved"
+    | "attachment_uploaded";
+}
+
+type InspectionWithRelations = Prisma.InspectionGetPayload<{
+  include: {
+    business: {
+      select: {
+        businessName: true;
+        id: true;
+      };
+    };
+    permitRecord: {
+      select: {
+        id: true;
+        permitNumber: true;
+      };
+    };
+  };
+}>;
+
+type ChecklistTemplateRecord = ChecklistTemplate;
+
+type ChecklistResultWithTemplate = Prisma.InspectionChecklistResultGetPayload<{
+  include: {
+    template: {
+      select: {
+        code: true;
+        id: true;
+        module: true;
+        title: true;
+      };
+    };
+  };
+}>;
+
+type FindingRecordWithRelations = Finding;
+
+type AttachmentRecord = Attachment;
+
+const ALLOWED_STATUS_TRANSITIONS: Record<
+  Inspection["status"],
+  Inspection["status"][]
+> = {
+  CANCELED: [],
+  COMPLETED: [],
+  IN_PROGRESS: ["COMPLETED", "CANCELED", "OVERDUE"],
+  OVERDUE: ["IN_PROGRESS", "COMPLETED", "CANCELED"],
+  SCHEDULED: ["IN_PROGRESS", "CANCELED", "OVERDUE"],
+};
+
+function toPublicInspection(record: InspectionWithRelations): PublicInspection {
+  return {
+    business: {
+      businessName: record.business.businessName,
+      id: record.business.id,
+    },
+    completedAt: record.completedAt?.toISOString(),
+    createdAt: record.createdAt.toISOString(),
+    id: record.id,
+    inspectorId: record.inspectorId ?? undefined,
+    location:
+      record.locationLatitude != null && record.locationLongitude != null
+        ? {
+            accuracyMeters: record.locationAccuracyMeters ?? undefined,
+            latitude: record.locationLatitude,
+            longitude: record.locationLongitude,
+          }
+        : undefined,
+    notes: record.notes ?? undefined,
+    permit: {
+      id: record.permitRecord.id,
+      permitNumber: record.permitRecord.permitNumber,
+    },
+    scheduledAt: record.scheduledAt.toISOString(),
+    startedAt: record.startedAt?.toISOString(),
+    status: record.status.toLowerCase() as Lowercase<`${Inspection["status"]}`>,
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toPublicChecklistTemplate(
+  record: ChecklistTemplateRecord,
+): PublicChecklistTemplate {
+  return {
+    code: record.code,
+    createdAt: record.createdAt.toISOString(),
+    description: record.description ?? undefined,
+    id: record.id,
+    isActive: record.isActive,
+    module: record.module,
+    sortOrder: record.sortOrder,
+    title: record.title,
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toPublicChecklistResult(
+  record: ChecklistResultWithTemplate,
+): PublicChecklistResult {
+  return {
+    createdAt: record.createdAt.toISOString(),
+    id: record.id,
+    inspectionId: record.inspectionId,
+    remarks: record.remarks ?? undefined,
+    status:
+      record.status.toLowerCase() as Lowercase<`${ChecklistResultStatus}`>,
+    template: {
+      code: record.template.code,
+      id: record.template.id,
+      module: record.template.module,
+      title: record.template.title,
+    },
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toPublicFinding(record: FindingRecordWithRelations): PublicFinding {
+  return {
+    checklistResultId: record.checklistResultId ?? undefined,
+    correctiveAction: record.correctiveAction ?? undefined,
+    createdAt: record.createdAt.toISOString(),
+    description: record.description,
+    dueDate: record.dueDate?.toISOString(),
+    id: record.id,
+    inspectionId: record.inspectionId,
+    location:
+      record.locationLatitude != null && record.locationLongitude != null
+        ? {
+            accuracyMeters: record.locationAccuracyMeters ?? undefined,
+            latitude: record.locationLatitude,
+            longitude: record.locationLongitude,
+          }
+        : undefined,
+    resolvedAt: record.resolvedAt?.toISOString(),
+    severity: record.severity.toLowerCase() as Lowercase<`${FindingSeverity}`>,
+    title: record.title,
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toPublicAttachment(record: AttachmentRecord): PublicAttachment {
+  return {
+    capturedAt: record.capturedAt?.toISOString(),
+    createdAt: record.createdAt.toISOString(),
+    fileName: record.fileName,
+    fileSizeBytes: record.fileSizeBytes,
+    findingId: record.findingId ?? undefined,
+    id: record.id,
+    inspectionId: record.inspectionId,
+    location:
+      record.locationLatitude != null && record.locationLongitude != null
+        ? {
+            accuracyMeters: record.locationAccuracyMeters ?? undefined,
+            latitude: record.locationLatitude,
+            longitude: record.locationLongitude,
+          }
+        : undefined,
+    mimeType: record.mimeType,
+    storageKey: record.storageKey,
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function buildLocationData(input: {
+  accuracyMeters?: number;
+  latitude?: number;
+  longitude?: number;
+}) {
+  if (input.latitude == null || input.longitude == null) {
+    return {};
+  }
+
+  return {
+    locationAccuracyMeters: input.accuracyMeters ?? null,
+    locationLatitude: input.latitude,
+    locationLongitude: input.longitude,
+  };
+}
+
+function buildInspectionWhere(
+  input: ListInspectionsInput,
+): Prisma.InspectionWhereInput {
+  const where: Prisma.InspectionWhereInput = {};
+
+  if (input.actorRole === "inspector") {
+    where.inspectorId = input.actorUserId;
+  }
+
+  if (input.businessId) {
+    where.businessId = input.businessId;
+  }
+
+  if (input.permitRecordId) {
+    where.permitRecordId = input.permitRecordId;
+  }
+
+  if (input.inspectorId && input.actorRole === "admin") {
+    where.inspectorId = input.inspectorId;
+  }
+
+  if (input.status) {
+    where.status = input.status;
+  }
+
+  return where;
+}
+
+async function ensurePermitMatchesBusiness(
+  businessId: string,
+  permitRecordId: string,
+): Promise<void> {
+  const permit = await prisma.permitRecord.findUnique({
+    where: { id: permitRecordId },
+    select: {
+      businessId: true,
+      id: true,
+    },
+  });
+
+  if (!permit) {
+    throw new AppError(404, "PERMIT_NOT_FOUND", "Permit record not found");
+  }
+
+  if (permit.businessId !== businessId) {
+    throw new AppError(
+      400,
+      "PERMIT_BUSINESS_MISMATCH",
+      "Permit record does not belong to the selected business",
+    );
+  }
+}
+
+async function ensureInspectionAssignee(inspectorId: string): Promise<void> {
+  const inspector = await prisma.user.findFirst({
+    where: {
+      id: inspectorId,
+      role: "INSPECTOR" satisfies UserRole,
+    },
+    select: { id: true },
+  });
+
+  if (!inspector) {
+    throw new AppError(404, "INSPECTOR_NOT_FOUND", "Inspector not found");
+  }
+}
+
+async function getScopedInspection(
+  id: string,
+  actorRole: "admin" | "inspector",
+  actorUserId: string,
+): Promise<InspectionWithRelations | null> {
+  return prisma.inspection.findFirst({
+    where: {
+      id,
+      ...(actorRole === "inspector" ? { inspectorId: actorUserId } : {}),
+    },
+    include: {
+      business: {
+        select: {
+          businessName: true,
+          id: true,
+        },
+      },
+      permitRecord: {
+        select: {
+          id: true,
+          permitNumber: true,
+        },
+      },
+    },
+  });
+}
+
+async function ensureAccessibleInspection(
+  id: string,
+  actorRole: "admin" | "inspector",
+  actorUserId: string,
+): Promise<InspectionWithRelations> {
+  const inspection = await getScopedInspection(id, actorRole, actorUserId);
+
+  if (!inspection) {
+    throw new AppError(404, "INSPECTION_NOT_FOUND", "Inspection not found");
+  }
+
+  return inspection;
+}
+
+async function ensureChecklistTemplate(templateId: string): Promise<void> {
+  const template = await prisma.checklistTemplate.findUnique({
+    where: { id: templateId },
+    select: { id: true, isActive: true },
+  });
+
+  if (!template || !template.isActive) {
+    throw new AppError(
+      404,
+      "CHECKLIST_TEMPLATE_NOT_FOUND",
+      "Checklist template not found",
+    );
+  }
+}
+
+async function ensureChecklistResultBelongsToInspection(
+  inspectionId: string,
+  checklistResultId: string,
+): Promise<void> {
+  const result = await prisma.inspectionChecklistResult.findUnique({
+    where: { id: checklistResultId },
+    select: { id: true, inspectionId: true },
+  });
+
+  if (!result) {
+    throw new AppError(
+      404,
+      "CHECKLIST_RESULT_NOT_FOUND",
+      "Checklist result not found",
+    );
+  }
+
+  if (result.inspectionId !== inspectionId) {
+    throw new AppError(
+      400,
+      "CHECKLIST_RESULT_INSPECTION_MISMATCH",
+      "Checklist result does not belong to the selected inspection",
+    );
+  }
+}
+
+async function ensureFindingBelongsToInspection(
+  inspectionId: string,
+  findingId: string,
+): Promise<void> {
+  const finding = await prisma.finding.findUnique({
+    where: { id: findingId },
+    select: { id: true, inspectionId: true },
+  });
+
+  if (!finding) {
+    throw new AppError(404, "FINDING_NOT_FOUND", "Finding not found");
+  }
+
+  if (finding.inspectionId !== inspectionId) {
+    throw new AppError(
+      400,
+      "FINDING_INSPECTION_MISMATCH",
+      "Finding does not belong to the selected inspection",
+    );
+  }
+}
+
+function assertStatusTransition(
+  currentStatus: Inspection["status"],
+  nextStatus: Inspection["status"],
+): void {
+  if (currentStatus === nextStatus) {
+    return;
+  }
+
+  if (!ALLOWED_STATUS_TRANSITIONS[currentStatus].includes(nextStatus)) {
+    throw new AppError(
+      400,
+      "INVALID_INSPECTION_STATUS_TRANSITION",
+      `Cannot transition inspection from ${currentStatus} to ${nextStatus}`,
+    );
+  }
+}
+
+export async function listInspections(input: ListInspectionsInput): Promise<{
+  data: PublicInspection[];
+  meta: { limit: number; page: number; total: number };
+}> {
+  const where = buildInspectionWhere(input);
+  const [total, inspections] = await Promise.all([
+    prisma.inspection.count({ where }),
+    prisma.inspection.findMany({
+      include: {
+        business: {
+          select: {
+            businessName: true,
+            id: true,
+          },
+        },
+        permitRecord: {
+          select: {
+            id: true,
+            permitNumber: true,
+          },
+        },
+      },
+      orderBy: { scheduledAt: "asc" },
+      skip: input.skip,
+      take: input.limit,
+      where,
+    }),
+  ]);
+
+  return {
+    data: inspections.map(toPublicInspection),
+    meta: {
+      limit: input.limit,
+      page: input.page,
+      total,
+    },
+  };
+}
+
+export async function getInspectionById(
+  id: string,
+  actorRole: "admin" | "inspector",
+  actorUserId: string,
+): Promise<PublicInspection> {
+  const inspection = await ensureAccessibleInspection(
+    id,
+    actorRole,
+    actorUserId,
+  );
+
+  return toPublicInspection(inspection);
+}
+
+export async function createInspection(
+  input: CreateInspectionInput,
+): Promise<PublicInspection> {
+  const business = await prisma.businessEstablishment.findUnique({
+    where: { id: input.businessId },
+    select: { id: true },
+  });
+
+  if (!business) {
+    throw new AppError(
+      404,
+      "BUSINESS_NOT_FOUND",
+      "Business establishment not found",
+    );
+  }
+
+  await ensurePermitMatchesBusiness(input.businessId, input.permitRecordId);
+
+  if (input.inspectorId) {
+    await ensureInspectionAssignee(input.inspectorId);
+  }
+
+  const inspection = await prisma.inspection.create({
+    data: {
+      businessId: input.businessId,
+      inspectorId: input.inspectorId ?? null,
+      ...buildLocationData(input),
+      notes: input.notes?.trim() || null,
+      permitRecordId: input.permitRecordId,
+      scheduledAt: new Date(input.scheduledAt),
+    },
+    include: {
+      business: {
+        select: {
+          businessName: true,
+          id: true,
+        },
+      },
+      permitRecord: {
+        select: {
+          id: true,
+          permitNumber: true,
+        },
+      },
+    },
+  });
+
+  await recordAuditLog({
+    action: "inspection.created",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    detail: inspection.inspectorId
+      ? `Assigned to inspector ${inspection.inspectorId}`
+      : undefined,
+    entityId: inspection.id,
+    entityType: "inspection",
+    summary: `Scheduled inspection for ${inspection.business.businessName}`,
+  });
+
+  return toPublicInspection(inspection);
+}
+
+export async function assignInspection(
+  input: AssignInspectionInput,
+): Promise<PublicInspection> {
+  const inspection = await prisma.inspection.findUnique({
+    where: { id: input.id },
+    select: { id: true },
+  });
+
+  if (!inspection) {
+    throw new AppError(404, "INSPECTION_NOT_FOUND", "Inspection not found");
+  }
+
+  await ensureInspectionAssignee(input.inspectorId);
+
+  const updatedInspection = await prisma.inspection.update({
+    where: { id: input.id },
+    data: {
+      inspectorId: input.inspectorId,
+    },
+    include: {
+      business: {
+        select: {
+          businessName: true,
+          id: true,
+        },
+      },
+      permitRecord: {
+        select: {
+          id: true,
+          permitNumber: true,
+        },
+      },
+    },
+  });
+
+  await recordAuditLog({
+    action: "inspection.assigned",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    detail: `Assigned inspector ${input.inspectorId}`,
+    entityId: updatedInspection.id,
+    entityType: "inspection",
+    summary: `Assigned inspection for ${updatedInspection.business.businessName}`,
+  });
+
+  return toPublicInspection(updatedInspection);
+}
+
+export async function updateInspectionStatus(
+  input: UpdateInspectionStatusInput,
+): Promise<PublicInspection> {
+  const inspection = await getScopedInspection(
+    input.id,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  if (!inspection) {
+    throw new AppError(404, "INSPECTION_NOT_FOUND", "Inspection not found");
+  }
+
+  assertStatusTransition(inspection.status, input.status);
+
+  const now = new Date();
+  const updatedInspection = await prisma.inspection.update({
+    where: { id: input.id },
+    data: {
+      completedAt: input.status === "COMPLETED" ? now : null,
+      ...buildLocationData(input),
+      notes: input.notes?.trim() || inspection.notes,
+      startedAt:
+        input.status === "IN_PROGRESS" || input.status === "COMPLETED"
+          ? (inspection.startedAt ?? now)
+          : inspection.startedAt,
+      status: input.status,
+    },
+    include: {
+      business: {
+        select: {
+          businessName: true,
+          id: true,
+        },
+      },
+      permitRecord: {
+        select: {
+          id: true,
+          permitNumber: true,
+        },
+      },
+    },
+  });
+
+  await recordAuditLog({
+    action: "inspection.status_updated",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    detail: `Inspection status changed to ${updatedInspection.status.toLowerCase()}`,
+    entityId: updatedInspection.id,
+    entityType: "inspection",
+    summary: `Updated inspection status for ${updatedInspection.business.businessName}`,
+  });
+
+  return toPublicInspection(updatedInspection);
+}
+
+export async function listChecklistTemplates(
+  module?: string,
+): Promise<PublicChecklistTemplate[]> {
+  const templates = await prisma.checklistTemplate.findMany({
+    where: {
+      ...(module
+        ? { module: { equals: module.trim(), mode: "insensitive" } }
+        : {}),
+      isActive: true,
+    },
+    orderBy: [{ module: "asc" }, { sortOrder: "asc" }, { title: "asc" }],
+  });
+
+  return templates.map(toPublicChecklistTemplate);
+}
+
+export async function listInspectionChecklistResults(
+  inspectionId: string,
+  actorRole: "admin" | "inspector",
+  actorUserId: string,
+): Promise<PublicChecklistResult[]> {
+  await ensureAccessibleInspection(inspectionId, actorRole, actorUserId);
+
+  const results = await prisma.inspectionChecklistResult.findMany({
+    where: { inspectionId },
+    include: {
+      template: {
+        select: {
+          code: true,
+          id: true,
+          module: true,
+          title: true,
+        },
+      },
+    },
+    orderBy: [{ template: { sortOrder: "asc" } }, { createdAt: "asc" }],
+  });
+
+  return results.map(toPublicChecklistResult);
+}
+
+export async function upsertInspectionChecklistResult(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  inspectionId: string;
+  remarks?: string;
+  status: ChecklistResultStatus;
+  templateId: string;
+}): Promise<PublicChecklistResult> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+  await ensureChecklistTemplate(input.templateId);
+
+  const result = await prisma.inspectionChecklistResult.upsert({
+    where: {
+      inspectionId_templateId: {
+        inspectionId: input.inspectionId,
+        templateId: input.templateId,
+      },
+    },
+    create: {
+      inspectionId: input.inspectionId,
+      remarks: input.remarks?.trim() || null,
+      status: input.status,
+      templateId: input.templateId,
+    },
+    update: {
+      remarks: input.remarks?.trim() || null,
+      status: input.status,
+    },
+    include: {
+      template: {
+        select: {
+          code: true,
+          id: true,
+          module: true,
+          title: true,
+        },
+      },
+    },
+  });
+
+  await recordAuditLog({
+    action: "inspection.checklist_result_recorded",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    detail: `Recorded ${result.template.code} as ${result.status.toLowerCase()}`,
+    entityId: result.id,
+    entityType: "checklist_result",
+    summary: `Checklist result recorded for inspection ${input.inspectionId}`,
+  });
+
+  return toPublicChecklistResult(result);
+}
+
+export async function listFindings(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  inspectionId: string;
+  severity?: FindingSeverity;
+}): Promise<PublicFinding[]> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  const findings = await prisma.finding.findMany({
+    where: {
+      inspectionId: input.inspectionId,
+      ...(input.severity ? { severity: input.severity } : {}),
+    },
+    orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
+  });
+
+  return findings.map(toPublicFinding);
+}
+
+export async function createFinding(input: {
+  accuracyMeters?: number;
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  checklistResultId?: string;
+  correctiveAction?: string;
+  description: string;
+  dueDate?: string;
+  inspectionId: string;
+  latitude?: number;
+  longitude?: number;
+  severity: FindingSeverity;
+  title: string;
+}): Promise<PublicFinding> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  if (input.checklistResultId) {
+    await ensureChecklistResultBelongsToInspection(
+      input.inspectionId,
+      input.checklistResultId,
+    );
+  }
+
+  const finding = await prisma.finding.create({
+    data: {
+      checklistResultId: input.checklistResultId ?? null,
+      correctiveAction: input.correctiveAction?.trim() || null,
+      description: input.description.trim(),
+      dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      inspectionId: input.inspectionId,
+      ...buildLocationData(input),
+      severity: input.severity,
+      title: input.title.trim(),
+    },
+  });
+
+  await recordAuditLog({
+    action: "finding.created",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    detail: input.description.trim(),
+    entityId: finding.id,
+    entityType: "finding",
+    summary: `Logged finding: ${finding.title}`,
+  });
+
+  return toPublicFinding(finding);
+}
+
+export async function resolveFinding(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  findingId: string;
+  inspectionId: string;
+}): Promise<PublicFinding> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  const finding = await prisma.finding.findFirst({
+    where: {
+      id: input.findingId,
+      inspectionId: input.inspectionId,
+    },
+  });
+
+  if (!finding) {
+    throw new AppError(404, "FINDING_NOT_FOUND", "Finding not found");
+  }
+
+  const updatedFinding = await prisma.finding.update({
+    where: { id: input.findingId },
+    data: {
+      resolvedAt: new Date(),
+    },
+  });
+
+  await recordAuditLog({
+    action: "finding.resolved",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    entityId: updatedFinding.id,
+    entityType: "finding",
+    summary: `Resolved finding: ${updatedFinding.title}`,
+  });
+
+  return toPublicFinding(updatedFinding);
+}
+
+export async function getInspectionSummary(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  from?: string;
+  to?: string;
+}): Promise<PublicInspectionSummary> {
+  const baseWhere: Prisma.InspectionWhereInput = {
+    ...(input.actorRole === "inspector"
+      ? { inspectorId: input.actorUserId }
+      : {}),
+    ...(input.from || input.to
+      ? {
+          scheduledAt: {
+            ...(input.from ? { gte: new Date(input.from) } : {}),
+            ...(input.to ? { lte: new Date(input.to) } : {}),
+          },
+        }
+      : {}),
+  };
+
+  const [scheduled, inProgress, completed, overdue, canceled] =
+    await Promise.all([
+      prisma.inspection.count({ where: { ...baseWhere, status: "SCHEDULED" } }),
+      prisma.inspection.count({
+        where: { ...baseWhere, status: "IN_PROGRESS" },
+      }),
+      prisma.inspection.count({ where: { ...baseWhere, status: "COMPLETED" } }),
+      prisma.inspection.count({ where: { ...baseWhere, status: "OVERDUE" } }),
+      prisma.inspection.count({ where: { ...baseWhere, status: "CANCELED" } }),
+    ]);
+
+  return {
+    canceled,
+    completed,
+    inProgress,
+    overdue,
+    scheduled,
+    total: scheduled + inProgress + completed + overdue + canceled,
+  };
+}
+
+export async function listInspectionHistory(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  inspectionId: string;
+}): Promise<PublicInspectionHistoryEvent[]> {
+  const inspection = await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  const [attachments, checklistResults, findings] = await Promise.all([
+    prisma.attachment.findMany({
+      where: { inspectionId: input.inspectionId },
+      orderBy: [{ createdAt: "desc" }],
+    }),
+    prisma.inspectionChecklistResult.findMany({
+      where: { inspectionId: input.inspectionId },
+      include: {
+        template: {
+          select: {
+            code: true,
+            title: true,
+          },
+        },
+      },
+      orderBy: [{ updatedAt: "desc" }],
+    }),
+    prisma.finding.findMany({
+      where: { inspectionId: input.inspectionId },
+      orderBy: [{ createdAt: "desc" }],
+    }),
+  ]);
+
+  const events: PublicInspectionHistoryEvent[] = [
+    {
+      entityId: inspection.id,
+      occurredAt: inspection.createdAt.toISOString(),
+      title: `Inspection record created for ${inspection.business.businessName}`,
+      type: "inspection_created",
+    },
+    ...(inspection.startedAt
+      ? [
+          {
+            entityId: inspection.id,
+            occurredAt: inspection.startedAt.toISOString(),
+            title: "Inspection started in the field",
+            type: "inspection_started" as const,
+          },
+        ]
+      : []),
+    ...(inspection.completedAt
+      ? [
+          {
+            detail: `Final status: ${inspection.status.toLowerCase()}`,
+            entityId: inspection.id,
+            occurredAt: inspection.completedAt.toISOString(),
+            title: "Inspection marked completed",
+            type: "inspection_completed" as const,
+          },
+        ]
+      : []),
+    ...checklistResults.map((result) => ({
+      detail: result.remarks ?? undefined,
+      entityId: result.id,
+      occurredAt: result.updatedAt.toISOString(),
+      title: `Checklist ${result.template.code} recorded as ${result.status.toLowerCase().replace(/_/g, " ")}`,
+      type: "checklist_result_recorded" as const,
+    })),
+    ...findings.flatMap((finding) => [
+      {
+        detail: finding.description,
+        entityId: finding.id,
+        occurredAt: finding.createdAt.toISOString(),
+        title: `Finding logged: ${finding.title}`,
+        type: "finding_logged" as const,
+      },
+      ...(finding.resolvedAt
+        ? [
+            {
+              entityId: finding.id,
+              occurredAt: finding.resolvedAt.toISOString(),
+              title: `Finding resolved: ${finding.title}`,
+              type: "finding_resolved" as const,
+            },
+          ]
+        : []),
+    ]),
+    ...attachments.map((attachment) => ({
+      detail: attachment.mimeType,
+      entityId: attachment.id,
+      occurredAt: attachment.createdAt.toISOString(),
+      title: `Attachment stored: ${attachment.fileName}`,
+      type: "attachment_uploaded" as const,
+    })),
+  ];
+
+  return events.sort(
+    (left, right) =>
+      new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
+  );
+}
+
+export async function listAttachments(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  findingId?: string;
+  inspectionId: string;
+}): Promise<PublicAttachment[]> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  if (input.findingId) {
+    await ensureFindingBelongsToInspection(input.inspectionId, input.findingId);
+  }
+
+  const attachments = await prisma.attachment.findMany({
+    where: {
+      inspectionId: input.inspectionId,
+      ...(input.findingId ? { findingId: input.findingId } : {}),
+    },
+    orderBy: [{ capturedAt: "desc" }, { createdAt: "desc" }],
+  });
+
+  return attachments.map(toPublicAttachment);
+}
+
+export async function createAttachment(input: {
+  accuracyMeters?: number;
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  capturedAt?: string;
+  fileName: string;
+  fileSizeBytes: number;
+  findingId?: string;
+  inspectionId: string;
+  latitude?: number;
+  longitude?: number;
+  mimeType: string;
+  storageKey: string;
+}): Promise<PublicAttachment> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  if (input.findingId) {
+    await ensureFindingBelongsToInspection(input.inspectionId, input.findingId);
+  }
+
+  const attachment = await prisma.attachment.create({
+    data: {
+      capturedAt: input.capturedAt ? new Date(input.capturedAt) : null,
+      fileName: input.fileName.trim(),
+      fileSizeBytes: input.fileSizeBytes,
+      findingId: input.findingId ?? null,
+      inspectionId: input.inspectionId,
+      ...buildLocationData(input),
+      mimeType: input.mimeType.trim(),
+      storageKey: input.storageKey.trim(),
+    },
+  });
+
+  await recordAuditLog({
+    action: "attachment.uploaded",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    detail: attachment.mimeType,
+    entityId: attachment.id,
+    entityType: "attachment",
+    summary: `Uploaded attachment: ${attachment.fileName}`,
+  });
+
+  return toPublicAttachment(attachment);
+}
+
+export async function createAttachmentUploadIntent(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  fileName: string;
+  findingId?: string;
+  inspectionId: string;
+}): Promise<PublicAttachmentUploadIntent> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  if (input.findingId) {
+    await ensureFindingBelongsToInspection(input.inspectionId, input.findingId);
+  }
+
+  const provider = getAttachmentStorageProvider();
+  const intent = await provider.createUploadIntent({
+    fileName: input.fileName,
+    inspectionId: input.inspectionId,
+  });
+
+  return intent;
+}
+
+export async function createAttachmentDownloadIntent(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  attachmentId: string;
+  inspectionId: string;
+}): Promise<PublicAttachmentDownloadIntent> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+  );
+
+  const attachment = await prisma.attachment.findUnique({
+    where: {
+      id: input.attachmentId,
+    },
+  });
+
+  if (!attachment || attachment.inspectionId !== input.inspectionId) {
+    throw new AppError(404, "ATTACHMENT_NOT_FOUND", "Attachment not found");
+  }
+
+  const provider = getAttachmentStorageProvider();
+
+  return provider.createDownloadIntent({
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    storageKey: attachment.storageKey,
+  });
+}

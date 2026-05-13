@@ -1,0 +1,147 @@
+const DEFAULT_PORT = 4000;
+const DEFAULT_JWT_EXPIRES_IN = "15m";
+const DEFAULT_JWT_REFRESH_EXPIRES_IN = "7d";
+const DEFAULT_BCRYPT_SALT_ROUNDS = 10;
+const DEFAULT_PUBLIC_API_URL = "http://localhost:4000";
+
+export type StorageProvider = "local" | "supabase";
+export type AuthProvider = "local-jwt" | "supabase";
+
+export interface AppEnv {
+  authProvider: AuthProvider;
+  bcryptSaltRounds: number;
+  databaseUrl: string;
+  jwtExpiresIn: string;
+  jwtRefreshExpiresIn: string;
+  jwtSecret: string;
+  nodeEnv: string;
+  uploadsDir: string;
+  port: number;
+  publicApiUrl: string;
+  supabaseAnonKey?: string;
+  storageProvider: StorageProvider;
+  supabaseServiceRoleKey?: string;
+  supabaseStorageBucket?: string;
+  supabaseUrl?: string;
+}
+
+function parseDuration(
+  rawValue: string | undefined,
+  fallback: string,
+  name: string,
+): string {
+  const value = rawValue?.trim() || fallback;
+
+  if (!/^\d+[smhd]$/i.test(value) && !/^\d+$/.test(value)) {
+    throw new Error(
+      `${name} must be a number of seconds or a duration such as 15m, 1h, or 7d`,
+    );
+  }
+
+  return value;
+}
+
+function requireEnv(name: string): string {
+  const value = process.env[name]?.trim();
+
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
+  return value;
+}
+
+function parsePositiveInteger(
+  rawValue: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return fallback;
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+
+  return value;
+}
+
+function parseStorageProvider(rawValue: string | undefined): StorageProvider {
+  const normalized = rawValue?.trim().toLowerCase() || "local";
+
+  if (normalized !== "local" && normalized !== "supabase") {
+    throw new Error("STORAGE_PROVIDER must be either local or supabase");
+  }
+
+  return normalized;
+}
+
+function parseAuthProvider(rawValue: string | undefined): AuthProvider {
+  const normalized = rawValue?.trim().toLowerCase() || "local-jwt";
+
+  if (normalized !== "local-jwt" && normalized !== "supabase") {
+    throw new Error("AUTH_PROVIDER must be either local-jwt or supabase");
+  }
+
+  return normalized;
+}
+
+function parseOptionalUrl(
+  rawValue: string | undefined,
+  name: string,
+): string | undefined {
+  const value = rawValue?.trim();
+
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid absolute URL`);
+  }
+
+  return value;
+}
+
+export function loadEnv(): AppEnv {
+  const port = parsePositiveInteger(process.env.PORT, DEFAULT_PORT, "PORT");
+
+  return {
+    authProvider: parseAuthProvider(process.env.AUTH_PROVIDER),
+    bcryptSaltRounds: parsePositiveInteger(
+      process.env.BCRYPT_SALT_ROUNDS,
+      DEFAULT_BCRYPT_SALT_ROUNDS,
+      "BCRYPT_SALT_ROUNDS",
+    ),
+    databaseUrl: requireEnv("DATABASE_URL"),
+    jwtExpiresIn: parseDuration(
+      process.env.JWT_EXPIRES_IN,
+      DEFAULT_JWT_EXPIRES_IN,
+      "JWT_EXPIRES_IN",
+    ),
+    jwtRefreshExpiresIn: parseDuration(
+      process.env.JWT_REFRESH_EXPIRES_IN,
+      DEFAULT_JWT_REFRESH_EXPIRES_IN,
+      "JWT_REFRESH_EXPIRES_IN",
+    ),
+    jwtSecret: requireEnv("JWT_SECRET"),
+    nodeEnv: process.env.NODE_ENV?.trim() || "development",
+    uploadsDir: process.env.UPLOADS_DIR?.trim() || "uploads",
+    port,
+    publicApiUrl:
+      parseOptionalUrl(process.env.PUBLIC_API_URL, "PUBLIC_API_URL") ??
+      DEFAULT_PUBLIC_API_URL.replace("4000", String(port)),
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY?.trim() || undefined,
+    storageProvider: parseStorageProvider(process.env.STORAGE_PROVIDER),
+    supabaseServiceRoleKey:
+      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || undefined,
+    supabaseStorageBucket:
+      process.env.SUPABASE_STORAGE_BUCKET?.trim() || undefined,
+    supabaseUrl: parseOptionalUrl(process.env.SUPABASE_URL, "SUPABASE_URL"),
+  };
+}
