@@ -8,16 +8,26 @@ import { loadEnv } from "./lib/env.js";
 import { validateStartupEnv } from "./lib/startup-env.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found.js";
+import { createRateLimitMiddleware } from "./middleware/rate-limit.js";
 import auditLogsRouter from "./routes/audit-logs.js";
 import authRouter from "./routes/auth.js";
 import businessesRouter from "./routes/businesses.js";
 import healthRouter from "./routes/health.js";
 import inspectionsRouter from "./routes/inspections.js";
+import lgusRouter from "./routes/lgus.js";
+import notificationsOutboxRouter from "./routes/notifications-outbox.js";
+import officesRouter from "./routes/offices.js";
 import permitsRouter from "./routes/permits.js";
 import uploadsRouter from "./routes/uploads.js";
 
 const app = express();
 export const API_V1 = "/api/v1";
+
+const publicEndpointRateLimiter = createRateLimitMiddleware({
+  keyPrefix: "public",
+  limit: 60,
+  windowMs: 60_000,
+});
 
 export function validateAppStartup() {
   const env = loadEnv();
@@ -31,15 +41,18 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("dev"));
 
-app.get(API_V1, (_req, res) => {
+app.get(API_V1, publicEndpointRateLimiter, (_req, res) => {
   res.json({ data: { service: "inspect-ph-api", status: "ok" } });
 });
 
-app.use(`${API_V1}/health`, healthRouter);
+app.use(`${API_V1}/health`, publicEndpointRateLimiter, healthRouter);
 app.use(`${API_V1}/auth`, authRouter);
 app.use(`${API_V1}/audit-logs`, auditLogsRouter);
 app.use(`${API_V1}/businesses`, businessesRouter);
 app.use(`${API_V1}/inspections`, inspectionsRouter);
+app.use(`${API_V1}/lgus`, lgusRouter);
+app.use(`${API_V1}/notifications/outbox`, notificationsOutboxRouter);
+app.use(`${API_V1}/offices`, officesRouter);
 app.use(`${API_V1}/permits`, permitsRouter);
 app.use(`${API_V1}/uploads`, uploadsRouter);
 

@@ -5,6 +5,7 @@ import { asyncHandler } from "../lib/async-handler.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
   bootstrapAdmin,
   getCurrentUser,
@@ -13,12 +14,22 @@ import {
   refreshSession,
 } from "../services/auth.js";
 import {
+  createUserOfficeAssignment,
+  deleteUserOfficeAssignment,
+  listUserOfficeAssignments,
+} from "../services/user-office-assignments.js";
+import {
   ADMIN_ROLES,
   normalizeUserRoleInput,
   USER_ROLES,
 } from "../types/auth.js";
 
 const router = Router();
+const authRateLimiter = createRateLimitMiddleware({
+  keyPrefix: "auth",
+  limit: 5,
+  windowMs: 60_000,
+});
 
 const emailValidator = body("email")
   .isEmail()
@@ -30,6 +41,7 @@ const passwordValidator = body("password")
 
 router.post(
   "/bootstrap-admin",
+  authRateLimiter,
   [
     emailValidator,
     body("name").isString().trim().notEmpty().withMessage("Name is required"),
@@ -49,6 +61,7 @@ router.post(
 
 router.post(
   "/login",
+  authRateLimiter,
   [emailValidator, passwordValidator, validateRequestMiddleware],
   asyncHandler(async (request, response) => {
     const result = await login({
@@ -62,6 +75,7 @@ router.post(
 
 router.post(
   "/refresh",
+  authRateLimiter,
   [
     body("refreshToken")
       .isString()
@@ -121,6 +135,61 @@ router.get(
         result.meta.limit,
       ),
     });
+  }),
+);
+
+router.get(
+  "/users/:id/office-assignments",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [validateRequestMiddleware],
+  asyncHandler(async (request, response) => {
+    const userId = Array.isArray(request.params.id)
+      ? request.params.id[0]
+      : request.params.id;
+    const assignments = await listUserOfficeAssignments(userId);
+
+    response.json({ data: assignments });
+  }),
+);
+
+router.post(
+  "/users/:id/office-assignments",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    body("officeId").isUUID().withMessage("officeId must be a valid UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const userId = Array.isArray(request.params.id)
+      ? request.params.id[0]
+      : request.params.id;
+    const assignment = await createUserOfficeAssignment({
+      officeId: String(request.body.officeId),
+      userId,
+    });
+
+    response.status(201).json({ data: assignment });
+  }),
+);
+
+router.delete(
+  "/users/:id/office-assignments/:assignmentId",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [validateRequestMiddleware],
+  asyncHandler(async (request, response) => {
+    const userId = Array.isArray(request.params.id)
+      ? request.params.id[0]
+      : request.params.id;
+    const assignmentId = Array.isArray(request.params.assignmentId)
+      ? request.params.assignmentId[0]
+      : request.params.assignmentId;
+
+    await deleteUserOfficeAssignment({ assignmentId, userId });
+
+    response.status(204).send();
   }),
 );
 

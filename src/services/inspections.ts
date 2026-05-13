@@ -13,6 +13,7 @@ import { AppError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { getAttachmentStorageProvider } from "../lib/storage-provider.js";
 import { recordAuditLog } from "./audit-logs.js";
+import { enqueueNotificationOutbox } from "./notifications-outbox.js";
 
 export interface ListInspectionsInput {
   actorRole: "admin" | "inspector";
@@ -435,6 +436,18 @@ async function ensureInspectionAssignee(inspectorId: string): Promise<void> {
   }
 }
 
+async function listAdminNotificationRecipientIds(excludeUserId?: string) {
+  const admins = await prisma.user.findMany({
+    where: {
+      role: "ADMIN" satisfies UserRole,
+      ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+    },
+    select: { id: true },
+  });
+
+  return admins.map((admin) => admin.id);
+}
+
 async function getScopedInspection(
   id: string,
   actorRole: "admin" | "inspector",
@@ -668,6 +681,17 @@ export async function createInspection(
     summary: `Scheduled inspection for ${inspection.business.businessName}`,
   });
 
+  if (inspection.inspectorId) {
+    await enqueueNotificationOutbox({
+      body: `${inspection.business.businessName} is scheduled for ${inspection.scheduledAt.toISOString()}.`,
+      entityId: inspection.id,
+      entityType: "inspection",
+      eventType: "inspection.assigned",
+      recipientUserId: inspection.inspectorId,
+      title: `Inspection assigned: ${inspection.business.businessName}`,
+    });
+  }
+
   return toPublicInspection(inspection);
 }
 
@@ -714,6 +738,15 @@ export async function assignInspection(
     entityId: updatedInspection.id,
     entityType: "inspection",
     summary: `Assigned inspection for ${updatedInspection.business.businessName}`,
+  });
+
+  await enqueueNotificationOutbox({
+    body: `${updatedInspection.business.businessName} is scheduled for ${updatedInspection.scheduledAt.toISOString()}.`,
+    entityId: updatedInspection.id,
+    entityType: "inspection",
+    eventType: "inspection.assigned",
+    recipientUserId: input.inspectorId,
+    title: `Inspection assigned: ${updatedInspection.business.businessName}`,
   });
 
   return toPublicInspection(updatedInspection);
@@ -772,6 +805,28 @@ export async function updateInspectionStatus(
     entityType: "inspection",
     summary: `Updated inspection status for ${updatedInspection.business.businessName}`,
   });
+
+  const adminRecipientIds = await listAdminNotificationRecipientIds(
+    input.actorRole === "admin" ? input.actorUserId : undefined,
+  );
+
+  if (adminRecipientIds.length > 0) {
+    const normalizedStatus = updatedInspection.status
+      .toLowerCase()
+      .split("_")
+      .join(" ");
+
+    await enqueueNotificationOutbox(
+      adminRecipientIds.map((recipientUserId) => ({
+        body: `${updatedInspection.business.businessName} is now ${normalizedStatus}.`,
+        entityId: updatedInspection.id,
+        entityType: "inspection",
+        eventType: "inspection.status_updated",
+        recipientUserId,
+        title: `Inspection status updated: ${updatedInspection.business.businessName}`,
+      })),
+    );
+  }
 
   return toPublicInspection(updatedInspection);
 }
@@ -1132,7 +1187,8 @@ export async function listInspectionHistory(input: {
 
   return events.sort(
     (left, right) =>
-      new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
+      new Date(right.occurredAt).getTime() -
+      new Date(left.occurredAt).getTime(),
   );
 }
 

@@ -18,9 +18,8 @@ interface MockAuditLogRecord {
 }
 
 const mockAuditLogCount = jest.fn<() => Promise<number>>();
-const mockAuditLogFindMany = jest.fn<
-  (...args: unknown[]) => Promise<MockAuditLogRecord[]>
->();
+const mockAuditLogFindMany =
+  jest.fn<(...args: unknown[]) => Promise<MockAuditLogRecord[]>>();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {

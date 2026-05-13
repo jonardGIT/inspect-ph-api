@@ -6,6 +6,10 @@ function createMock<TReturn>() {
 }
 
 const mockAuditLogCreate = createMock<Promise<void>>();
+const mockNotificationOutboxCount = createMock<Promise<number>>();
+const mockNotificationOutboxCreateMany =
+  createMock<Promise<{ count: number }>>();
+const mockNotificationOutboxFindMany = createMock<Promise<unknown[]>>();
 const mockBusinessFindUnique = createMock<Promise<unknown>>();
 const mockAttachmentCreate = createMock<Promise<unknown>>();
 const mockAttachmentFindMany = createMock<Promise<unknown[]>>();
@@ -30,11 +34,17 @@ const mockFindingFindUnique = createMock<Promise<unknown>>();
 const mockFindingUpdate = createMock<Promise<unknown>>();
 const mockPermitFindUnique = createMock<Promise<unknown>>();
 const mockUserFindFirst = createMock<Promise<unknown>>();
+const mockUserFindMany = createMock<Promise<unknown[]>>();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
     auditLog: {
       create: mockAuditLogCreate,
+    },
+    notificationOutbox: {
+      count: mockNotificationOutboxCount,
+      createMany: mockNotificationOutboxCreateMany,
+      findMany: mockNotificationOutboxFindMany,
     },
     attachment: {
       create: mockAttachmentCreate,
@@ -73,6 +83,7 @@ jest.mock("../lib/prisma.js", () => ({
     },
     user: {
       findFirst: mockUserFindFirst,
+      findMany: mockUserFindMany,
     },
   },
 }));
@@ -91,6 +102,8 @@ describe("Inspection routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockAuditLogCreate.mockResolvedValue(undefined);
+    mockNotificationOutboxCreateMany.mockResolvedValue({ count: 1 });
+    mockUserFindMany.mockResolvedValue([]);
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
     process.env.JWT_REFRESH_EXPIRES_IN = "7d";
@@ -386,6 +399,16 @@ describe("Inspection routes", () => {
         entityType: "inspection",
       }),
     });
+    expect(mockNotificationOutboxCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          entityId: "33333333-3333-4333-8333-333333333333",
+          entityType: "inspection",
+          eventType: "inspection.assigned",
+          recipientUserId: "22222222-2222-4222-8222-222222222222",
+        }),
+      ],
+    });
     expect(mockInspectionCreate).toHaveBeenCalledWith({
       data: {
         businessId: "11111111-1111-4111-8111-111111111111",
@@ -467,11 +490,27 @@ describe("Inspection routes", () => {
         entityType: "inspection",
       }),
     });
+    expect(mockNotificationOutboxCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          entityId: "33333333-3333-4333-8333-333333333333",
+          entityType: "inspection",
+          eventType: "inspection.assigned",
+          recipientUserId: "22222222-2222-4222-8222-222222222222",
+        }),
+      ],
+    });
   });
 
   it("updates status for an assigned inspector", async () => {
     const scheduledAt = new Date("2026-05-12T08:00:00.000Z");
     const updatedAt = new Date("2026-05-12T09:00:00.000Z");
+
+    mockUserFindMany.mockResolvedValue([
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      },
+    ]);
 
     mockInspectionFindFirst.mockResolvedValue({
       business: {
@@ -547,6 +586,18 @@ describe("Inspection routes", () => {
         }),
       }),
     );
+    expect(mockNotificationOutboxCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          body: "North Star Trading is now in progress.",
+          entityId: "33333333-3333-4333-8333-333333333333",
+          entityType: "inspection",
+          eventType: "inspection.status_updated",
+          recipientUserId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          title: "Inspection status updated: North Star Trading",
+        }),
+      ],
+    });
   });
 
   it("forbids inspectors from assigning inspections", async () => {

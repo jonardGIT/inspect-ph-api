@@ -26,11 +26,21 @@ const mockUserCreate =
   jest.fn<(args: CreateUserArgs) => Promise<MockUserRecord>>();
 const mockUserFindMany = jest.fn<() => Promise<MockUserRecord[]>>();
 const mockUserFindUnique = jest.fn<() => Promise<MockUserRecord | null>>();
+const mockOfficeFindUnique = jest.fn<() => Promise<unknown>>();
+const mockUserOfficeAssignmentFindFirst = jest.fn<() => Promise<unknown>>();
+const mockUserOfficeAssignmentFindMany = jest.fn<() => Promise<unknown[]>>();
+const mockUserOfficeAssignmentUpsert =
+  jest.fn<(args: unknown) => Promise<unknown>>();
+const mockUserOfficeAssignmentDelete =
+  jest.fn<(args: unknown) => Promise<void>>();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
     auditLog: {
       create: mockAuditLogCreate,
+    },
+    office: {
+      findUnique: mockOfficeFindUnique,
     },
     user: {
       count: mockUserCount,
@@ -38,14 +48,23 @@ jest.mock("../lib/prisma.js", () => ({
       findMany: mockUserFindMany,
       findUnique: mockUserFindUnique,
     },
+    userOfficeAssignment: {
+      delete: mockUserOfficeAssignmentDelete,
+      findFirst: mockUserOfficeAssignmentFindFirst,
+      findMany: mockUserOfficeAssignmentFindMany,
+      upsert: mockUserOfficeAssignmentUpsert,
+    },
   },
 }));
 
 import app from "../app.js";
+import { signAccessToken } from "../lib/jwt.js";
+import { resetRateLimitStoreForTests } from "../middleware/rate-limit.js";
 
 describe("Auth routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetRateLimitStoreForTests();
     mockAuditLogCreate.mockResolvedValue(undefined);
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
@@ -251,5 +270,189 @@ describe("Auth routes", () => {
 
     expect(response.status).toBe(403);
     expect(response.body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("lists user office assignments for an authenticated admin", async () => {
+    const createdAt = new Date("2026-05-12T08:00:00.000Z");
+
+    mockUserOfficeAssignmentFindMany.mockResolvedValue([
+      {
+        createdAt,
+        id: "assignment-1",
+        office: {
+          code: "BPLO-HQ",
+          createdAt,
+          description: null,
+          id: "office-1",
+          lguId: "lgu-1",
+          name: "BPLO Headquarters",
+          updatedAt: createdAt,
+        },
+        officeId: "office-1",
+        updatedAt: createdAt,
+        user: {
+          email: "inspector@example.com",
+          id: "user-2",
+          name: "Field Inspector",
+          role: "INSPECTOR",
+        },
+        userId: "user-2",
+      },
+    ]);
+
+    const response = await request(app)
+      .get("/api/v1/auth/users/user-2/office-assignments")
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "user-1" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      data: [
+        {
+          createdAt: createdAt.toISOString(),
+          id: "assignment-1",
+          office: {
+            code: "BPLO-HQ",
+            id: "office-1",
+            lguId: "lgu-1",
+            name: "BPLO Headquarters",
+          },
+          user: {
+            email: "inspector@example.com",
+            id: "user-2",
+            name: "Field Inspector",
+            role: "inspector",
+          },
+        },
+      ],
+    });
+  });
+
+  it("creates a user office assignment for an authenticated admin", async () => {
+    const createdAt = new Date("2026-05-12T08:00:00.000Z");
+
+    mockUserFindUnique.mockResolvedValue({
+      createdAt,
+      email: "inspector@example.com",
+      id: "user-2",
+      name: "Field Inspector",
+      passwordHash: "ignored",
+      role: "INSPECTOR",
+      updatedAt: createdAt,
+    });
+    mockOfficeFindUnique.mockResolvedValue({
+      code: "BPLO-HQ",
+      createdAt,
+      description: null,
+      id: "11111111-1111-4111-8111-111111111111",
+      lguId: "lgu-1",
+      name: "BPLO Headquarters",
+      updatedAt: createdAt,
+    });
+    mockUserOfficeAssignmentUpsert.mockResolvedValue({
+      createdAt,
+      id: "assignment-1",
+      office: {
+        code: "BPLO-HQ",
+        createdAt,
+        description: null,
+        id: "11111111-1111-4111-8111-111111111111",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+        updatedAt: createdAt,
+      },
+      officeId: "11111111-1111-4111-8111-111111111111",
+      updatedAt: createdAt,
+      user: {
+        email: "inspector@example.com",
+        id: "user-2",
+        name: "Field Inspector",
+        role: "INSPECTOR",
+      },
+      userId: "user-2",
+    });
+
+    const response = await request(app)
+      .post("/api/v1/auth/users/user-2/office-assignments")
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "user-1" })}`,
+      )
+      .send({ officeId: "11111111-1111-4111-8111-111111111111" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.id).toBe("assignment-1");
+    expect(mockUserOfficeAssignmentUpsert).toHaveBeenCalledWith({
+      create: {
+        officeId: "11111111-1111-4111-8111-111111111111",
+        userId: "user-2",
+      },
+      include: {
+        office: true,
+        user: {
+          select: {
+            email: true,
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
+      },
+      update: {},
+      where: {
+        userId_officeId: {
+          officeId: "11111111-1111-4111-8111-111111111111",
+          userId: "user-2",
+        },
+      },
+    });
+  });
+
+  it("deletes a user office assignment for an authenticated admin", async () => {
+    mockUserOfficeAssignmentFindFirst.mockResolvedValue({
+      id: "assignment-1",
+      officeId: "office-1",
+      userId: "user-2",
+    });
+    mockUserOfficeAssignmentDelete.mockResolvedValue(undefined);
+
+    const response = await request(app)
+      .delete("/api/v1/auth/users/user-2/office-assignments/assignment-1")
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "user-1" })}`,
+      );
+
+    expect(response.status).toBe(204);
+    expect(mockUserOfficeAssignmentDelete).toHaveBeenCalledWith({
+      where: { id: "assignment-1" },
+    });
+  });
+
+  it("rate limits repeated login attempts from the same client", async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await request(app).post("/api/v1/auth/login").send({
+        email: "invalid-email",
+        password: "short",
+      });
+
+      expect(response.status).toBe(400);
+    }
+
+    const limitedResponse = await request(app).post("/api/v1/auth/login").send({
+      email: "invalid-email",
+      password: "short",
+    });
+
+    expect(limitedResponse.status).toBe(429);
+    expect(limitedResponse.body).toEqual({
+      error: {
+        code: "RATE_LIMITED",
+        message: "Too many requests. Please try again later.",
+      },
+    });
+    expect(limitedResponse.headers["retry-after"]).toEqual(expect.any(String));
   });
 });

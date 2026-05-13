@@ -69,7 +69,7 @@ interface RecordAuditLogInput {
 }
 
 function mapActorRole(role: UserRole | null | undefined) {
-  return role ? normalizeUserRoleInput(role) ?? undefined : undefined;
+  return role ? (normalizeUserRoleInput(role) ?? undefined) : undefined;
 }
 
 function toPublicAuditLog(log: AuditLogRecordRow): PublicAuditLog {
@@ -92,7 +92,9 @@ function toPublicAuditLog(log: AuditLogRecordRow): PublicAuditLog {
   };
 }
 
-function buildAuditLogWhere(input: ListAuditLogsInput): Prisma.AuditLogWhereInput {
+function buildAuditLogWhere(
+  input: ListAuditLogsInput,
+): Prisma.AuditLogWhereInput {
   const clauses: Prisma.AuditLogWhereInput[] = [];
 
   if (input.action) {
@@ -128,7 +130,9 @@ function buildAuditLogWhere(input: ListAuditLogsInput): Prisma.AuditLogWhereInpu
   return clauses.length ? { AND: clauses } : {};
 }
 
-export async function recordAuditLog(input: RecordAuditLogInput): Promise<void> {
+export async function recordAuditLog(
+  input: RecordAuditLogInput,
+): Promise<void> {
   await prisma.auditLog.create({
     data: {
       action: input.action,

@@ -41,17 +41,79 @@ enum FindingSeverity {
   CRITICAL
 }
 
+enum NotificationChannel {
+  IN_APP
+}
+
+enum NotificationOutboxStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
 model User {
   id                  String         @id @default(uuid())
   email               String         @unique
   name                String
   passwordHash        String
   role                UserRole       @default(INSPECTOR)
+  lguId               String?
   auditLogs           AuditLog[]
+  notificationOutboxEntries NotificationOutbox[]
   createdPermitRecords PermitRecord[] @relation("PermitRecordCreator")
   assignedInspections Inspection[]   @relation("InspectionInspector")
+  officeAssignments   UserOfficeAssignment[]
+  lgu                 Lgu?           @relation(fields: [lguId], references: [id], onDelete: SetNull)
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
+
+  @@index([lguId])
+}
+
+model Lgu {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  region      String?
+  province    String?
+  city        String?
+  users       User[]
+  offices     Office[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+  @@index([region, province, city])
+}
+
+model Office {
+  id          String   @id @default(uuid())
+  lguId       String
+  code        String
+  name        String
+  description String?
+  lgu         Lgu      @relation(fields: [lguId], references: [id], onDelete: Cascade)
+  userAssignments UserOfficeAssignment[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([lguId, code])
+  @@index([lguId])
+  @@index([name])
+}
+
+model UserOfficeAssignment {
+  id         String   @id @default(uuid())
+  userId     String
+  officeId   String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  office     Office   @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, officeId])
+  @@index([userId])
+  @@index([officeId])
 }
 
 model AuditLog {
@@ -69,6 +131,28 @@ model AuditLog {
   @@index([actorUserId])
   @@index([action])
   @@index([entityType])
+  @@index([createdAt])
+}
+
+model NotificationOutbox {
+  id              String                  @id @default(uuid())
+  recipientUserId String
+  channel         NotificationChannel     @default(IN_APP)
+  eventType       String
+  title           String
+  body            String
+  entityType      String?
+  entityId        String?
+  status          NotificationOutboxStatus @default(PENDING)
+  processedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  recipient       User                    @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUserId])
+  @@index([eventType])
+  @@index([status])
   @@index([createdAt])
 }
 
