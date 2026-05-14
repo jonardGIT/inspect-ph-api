@@ -186,6 +186,10 @@ router.get(
       .optional()
       .isUUID()
       .withMessage("lguId must be a valid UUID"),
+    query("officeId")
+      .optional()
+      .isUUID()
+      .withMessage("officeId must be a valid UUID"),
     query("to")
       .optional()
       .isISO8601()
@@ -210,6 +214,10 @@ router.get(
       lguId:
         typeof request.query.lguId === "string"
           ? request.query.lguId
+          : undefined,
+      officeId:
+        typeof request.query.officeId === "string"
+          ? request.query.officeId
           : undefined,
       to: typeof request.query.to === "string" ? request.query.to : undefined,
     });

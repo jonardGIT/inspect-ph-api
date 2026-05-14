@@ -915,6 +915,46 @@ describe("Inspection routes", () => {
     });
   });
 
+  it("filters inspection summary counts by office for admins", async () => {
+    mockInspectionCount
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0);
+
+    const response = await request(app)
+      .get(
+        "/api/v1/inspections/summary?officeId=11111111-1111-4111-8111-111111111111",
+      )
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(mockInspectionCount).toHaveBeenNthCalledWith(1, {
+      where: {
+        AND: [
+          {
+            officeId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+        status: "SCHEDULED",
+      },
+    });
+    expect(mockInspectionCount).toHaveBeenNthCalledWith(2, {
+      where: {
+        AND: [
+          {
+            officeId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+        status: "IN_PROGRESS",
+      },
+    });
+  });
+
   it("lists active checklist templates", async () => {
     const createdAt = new Date("2026-05-12T08:00:00.000Z");
 

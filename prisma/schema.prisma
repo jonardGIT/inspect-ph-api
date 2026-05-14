@@ -193,6 +193,7 @@ model PermitRecord {
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   inspections     Inspection[]
+  payments        PaymentRecord[]
   business        BusinessEstablishment @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdBy       User?                 @relation("PermitRecordCreator", fields: [createdById], references: [id])
 
@@ -219,6 +220,7 @@ model Inspection {
   createdAt              DateTime                    @default(now())
   updatedAt              DateTime                    @updatedAt
   attachments            Attachment[]
+  fireSafetyCertificate  FireSafetyCertificate?
   findings               Finding[]
   business               BusinessEstablishment       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   inspector              User?                       @relation("InspectionInspector", fields: [inspectorId], references: [id])
@@ -231,6 +233,69 @@ model Inspection {
   @@index([officeId])
   @@index([inspectorId])
   @@index([status, scheduledAt])
+}
+
+model FireSafetyCertificate {
+  id                String                      @id @default(uuid())
+  inspectionId      String                      @unique
+  certificateNumber String                      @unique
+  issuedAt          DateTime
+  expiresAt         DateTime
+  status            FireSafetyCertificateStatus @default(DRAFT)
+  remarks           String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  inspection        Inspection                  @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([issuedAt])
+  @@index([expiresAt])
+}
+
+model IssueReport {
+  id                     String              @id @default(uuid())
+  reportNumber           String              @unique
+  category               IssueReportCategory
+  subject                String
+  description            String
+  locationDescription    String?
+  reporterName           String?
+  reporterEmail          String?
+  reporterPhone          String?
+  locationLatitude       Float?
+  locationLongitude      Float?
+  locationAccuracyMeters Float?
+  status                 IssueReportStatus   @default(SUBMITTED)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PaymentRecord {
+  id                String          @id @default(uuid())
+  permitRecordId    String
+  referenceNumber   String          @unique
+  provider          PaymentProvider @default(LOCAL)
+  providerPaymentId String?         @unique
+  amountInMinor     Int
+  currency          String          @default("PHP")
+  status            PaymentStatus   @default(PENDING)
+  description       String?
+  checkoutUrl       String?
+  paidAt            DateTime?
+  failedAt          DateTime?
+  failureReason     String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  permitRecord      PermitRecord    @relation(fields: [permitRecordId], references: [id], onDelete: Cascade)
+
+  @@index([permitRecordId])
+  @@index([status])
+  @@index([provider])
+  @@index([createdAt])
 }
 
 model ChecklistTemplate {
@@ -343,6 +408,41 @@ enum FindingSeverity {
   MEDIUM
   HIGH
   CRITICAL
+}
+
+enum PaymentProvider {
+  LOCAL
+  PAYMONGO
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum FireSafetyCertificateStatus {
+  DRAFT
+  ISSUED
+  REVOKED
+  EXPIRED
+}
+
+enum IssueReportCategory {
+  FIRE_HAZARD
+  SANITATION
+  STRUCTURAL
+  PUBLIC_SAFETY
+  OTHER
+}
+
+enum IssueReportStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
 }
 
 enum NotificationChannel {

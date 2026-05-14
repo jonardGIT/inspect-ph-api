@@ -352,7 +352,7 @@ function toPublicChecklistResult(
   };
 }
 
-function toPublicFinding(record: FindingRecordWithRelations): PublicFinding {
+export function toPublicFinding(record: FindingRecordWithRelations): PublicFinding {
   return {
     checklistResultId: record.checklistResultId ?? undefined,
     correctiveAction: record.correctiveAction ?? undefined,
@@ -1285,6 +1285,7 @@ export async function getInspectionSummary(input: {
   from?: string;
   jurisdictionScope: JurisdictionScope;
   lguId?: string;
+  officeId?: string;
   to?: string;
 }): Promise<PublicInspectionSummary> {
   const clauses = buildScopedInspectionClauses({
@@ -1300,6 +1301,10 @@ export async function getInspectionSummary(input: {
 
   if (scheduledWindowClause) {
     clauses.push(scheduledWindowClause);
+  }
+
+  if (input.officeId) {
+    clauses.push({ officeId: input.officeId });
   }
 
   const baseWhere = clauses.length === 0 ? {} : { AND: clauses };

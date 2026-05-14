@@ -3,6 +3,7 @@ import type { PermitRecord, Prisma } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
 import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
+import { toPublicFinding } from "./inspections.js";
 
 export interface CreatePermitInput {
   applicationDate: string;
@@ -38,6 +39,31 @@ export interface PublicPermit {
   updatedAt: string;
 }
 
+export interface PublicPermitLookup {
+  applicationDate: string;
+  business: {
+    businessName: string;
+    id: string;
+  };
+  createdAt: string;
+  expirationDate: string;
+  lineOfBusiness: string;
+  permitNumber: string;
+  status: Lowercase<`${PermitRecord["status"]}`>;
+  updatedAt: string;
+}
+
+export interface PublicPermitFindingsLookup {
+  permit: PublicPermitLookup;
+  latestInspection?: {
+    id: string;
+    scheduledAt: string;
+    completedAt?: string;
+    status: "scheduled" | "in_progress" | "completed" | "cancelled";
+  };
+  findings: ReturnType<typeof toPublicFinding>[];
+}
+
 type PermitRecordWithBusiness = Prisma.PermitRecordGetPayload<{
   include: {
     business: {
@@ -60,6 +86,23 @@ function toPublicPermit(record: PermitRecordWithBusiness): PublicPermit {
     createdById: record.createdById ?? undefined,
     expirationDate: record.expirationDate.toISOString(),
     id: record.id,
+    lineOfBusiness: record.lineOfBusiness,
+    permitNumber: record.permitNumber,
+    status:
+      record.status.toLowerCase() as Lowercase<`${PermitRecord["status"]}`>,
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toPublicPermitLookup(record: PermitRecordWithBusiness): PublicPermitLookup {
+  return {
+    applicationDate: record.applicationDate.toISOString(),
+    business: {
+      businessName: record.business.businessName,
+      id: record.business.id,
+    },
+    createdAt: record.createdAt.toISOString(),
+    expirationDate: record.expirationDate.toISOString(),
     lineOfBusiness: record.lineOfBusiness,
     permitNumber: record.permitNumber,
     status:
@@ -158,4 +201,75 @@ export async function createPermit(
   });
 
   return toPublicPermit(permit);
+}
+
+export async function getPublicPermitByNumber(input: {
+  permitNumber: string;
+}): Promise<PublicPermitLookup> {
+  const permit = await prisma.permitRecord.findUnique({
+    where: { permitNumber: input.permitNumber },
+    include: {
+      business: {
+        select: {
+          businessName: true,
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!permit) {
+    throw new AppError(404, "PERMIT_NOT_FOUND", "Permit record not found");
+  }
+
+  return toPublicPermitLookup(permit);
+}
+
+export async function getPublicPermitFindingsByNumber(input: {
+  permitNumber: string;
+}): Promise<PublicPermitFindingsLookup> {
+  const permit = await prisma.permitRecord.findUnique({
+    where: { permitNumber: input.permitNumber },
+    include: {
+      business: {
+        select: {
+          businessName: true,
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!permit) {
+    throw new AppError(404, "PERMIT_NOT_FOUND", "Permit record not found");
+  }
+
+  const latestInspection = await prisma.inspection.findFirst({
+    include: {
+      findings: {
+        orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
+      },
+    },
+    orderBy: [{ scheduledAt: "desc" }, { createdAt: "desc" }],
+    where: {
+      permitRecordId: permit.id,
+    },
+  });
+
+  return {
+    findings: latestInspection?.findings.map(toPublicFinding) ?? [],
+    latestInspection: latestInspection
+      ? {
+          completedAt: latestInspection.completedAt?.toISOString() ?? undefined,
+          id: latestInspection.id,
+          scheduledAt: latestInspection.scheduledAt.toISOString(),
+          status: latestInspection.status.toLowerCase() as
+            | "scheduled"
+            | "in_progress"
+            | "completed"
+            | "cancelled",
+        }
+      : undefined,
+    permit: toPublicPermitLookup(permit),
+  };
 }

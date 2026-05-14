@@ -50,4 +50,18 @@ export function validateStartupEnv(env: AppEnv): void {
       );
     }
   }
+
+  if (env.paymentProvider === "paymongo") {
+    if (!env.paymongoSecretKey) {
+      throw new Error(
+        "PAYMONGO_SECRET_KEY is required when PAYMENT_PROVIDER=paymongo",
+      );
+    }
+
+    if (!env.paymongoWebhookSecret) {
+      throw new Error(
+        "PAYMONGO_WEBHOOK_SECRET is required when PAYMENT_PROVIDER=paymongo",
+      );
+    }
+  }
 }

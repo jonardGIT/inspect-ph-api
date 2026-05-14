@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { body, query } from "express-validator";
+import { body, param, query } from "express-validator";
 
 import { asyncHandler } from "../lib/async-handler.js";
 import { AppError } from "../lib/errors.js";
@@ -7,10 +7,21 @@ import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { requireJurisdiction } from "../middleware/jurisdiction.js";
-import { createPermit, listPermits } from "../services/permits.js";
+import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
+import {
+  createPermit,
+  getPublicPermitFindingsByNumber,
+  getPublicPermitByNumber,
+  listPermits,
+} from "../services/permits.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
 const router = Router();
+const publicPermitLookupRateLimiter = createRateLimitMiddleware({
+  keyPrefix: "public-permit-lookup",
+  limit: 20,
+  windowMs: 60_000,
+});
 
 function parsePermitStatus(value: unknown) {
   if (typeof value !== "string") {
@@ -32,6 +43,54 @@ function parsePermitStatus(value: unknown) {
 
   return normalized as (typeof validStatuses)[number];
 }
+
+router.get(
+  "/public/:permitNumber/findings",
+  publicPermitLookupRateLimiter,
+  [
+    param("permitNumber")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("permitNumber is required"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const permitNumber = Array.isArray(request.params.permitNumber)
+      ? request.params.permitNumber[0]
+      : request.params.permitNumber;
+
+    const findingsLookup = await getPublicPermitFindingsByNumber({
+      permitNumber: permitNumber.trim(),
+    });
+
+    response.json({ data: findingsLookup });
+  }),
+);
+
+router.get(
+  "/public/:permitNumber",
+  publicPermitLookupRateLimiter,
+  [
+    param("permitNumber")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("permitNumber is required"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const permitNumber = Array.isArray(request.params.permitNumber)
+      ? request.params.permitNumber[0]
+      : request.params.permitNumber;
+
+    const permit = await getPublicPermitByNumber({
+      permitNumber: permitNumber.trim(),
+    });
+
+    response.json({ data: permit });
+  }),
+);
 
 router.get(
   "/",

@@ -4,6 +4,8 @@ const mockBusinessFindUnique = jest.fn();
 const mockPermitCount = jest.fn();
 const mockPermitCreate = jest.fn();
 const mockPermitFindMany = jest.fn();
+const mockPermitFindUnique = jest.fn();
+const mockInspectionFindFirst = jest.fn();
 const mockUserFindUnique = jest.fn();
 
 jest.mock("../lib/prisma.js", () => ({
@@ -15,6 +17,10 @@ jest.mock("../lib/prisma.js", () => ({
       count: mockPermitCount,
       create: mockPermitCreate,
       findMany: mockPermitFindMany,
+      findUnique: mockPermitFindUnique,
+    },
+    inspection: {
+      findFirst: mockInspectionFindFirst,
     },
     user: {
       findUnique: mockUserFindUnique,
@@ -122,6 +128,118 @@ describe("Permit routes", () => {
           },
         },
       },
+    });
+  });
+
+  it("looks up a permit publicly by permit number", async () => {
+    const createdAt = new Date("2026-05-12T08:00:00.000Z");
+
+    mockPermitFindUnique.mockResolvedValue({
+      applicationDate: createdAt,
+      business: {
+        businessName: "North Star Trading",
+        id: "11111111-1111-4111-8111-111111111111",
+      },
+      createdAt,
+      createdById: "user-1",
+      expirationDate: new Date("2027-05-12T08:00:00.000Z"),
+      id: "22222222-2222-4222-8222-222222222222",
+      lineOfBusiness: "Retail",
+      permitNumber: "BPLO-2026-0001",
+      status: "PENDING_INSPECTION",
+      updatedAt: createdAt,
+    });
+
+    const response = await request(app).get(
+      "/api/v1/permits/public/BPLO-2026-0001",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual({
+      applicationDate: createdAt.toISOString(),
+      business: {
+        businessName: "North Star Trading",
+        id: "11111111-1111-4111-8111-111111111111",
+      },
+      createdAt: createdAt.toISOString(),
+      expirationDate: "2027-05-12T08:00:00.000Z",
+      lineOfBusiness: "Retail",
+      permitNumber: "BPLO-2026-0001",
+      status: "pending_inspection",
+      updatedAt: createdAt.toISOString(),
+    });
+  });
+
+  it("looks up public permit findings by permit number", async () => {
+    const createdAt = new Date("2026-05-12T08:00:00.000Z");
+    const dueDate = new Date("2026-05-19T08:00:00.000Z");
+
+    mockPermitFindUnique.mockResolvedValue({
+      applicationDate: createdAt,
+      business: {
+        businessName: "North Star Trading",
+        id: "11111111-1111-4111-8111-111111111111",
+      },
+      createdAt,
+      createdById: "user-1",
+      expirationDate: new Date("2027-05-12T08:00:00.000Z"),
+      id: "22222222-2222-4222-8222-222222222222",
+      lineOfBusiness: "Retail",
+      permitNumber: "BPLO-2026-0001",
+      status: "PENDING_INSPECTION",
+      updatedAt: createdAt,
+    });
+    mockInspectionFindFirst.mockResolvedValue({
+      completedAt: null,
+      createdAt,
+      findings: [
+        {
+          checklistResultId: null,
+          correctiveAction: "Replace damaged signage",
+          createdAt,
+          description: "Main signboard is damaged",
+          dueDate,
+          id: "finding-1",
+          inspectionId: "inspection-1",
+          locationAccuracyMeters: null,
+          locationLatitude: null,
+          locationLongitude: null,
+          resolvedAt: null,
+          severity: "HIGH",
+          title: "Damaged Signage",
+          updatedAt: createdAt,
+        },
+      ],
+      id: "inspection-1",
+      scheduledAt: createdAt,
+      status: "IN_PROGRESS",
+    });
+
+    const response = await request(app).get(
+      "/api/v1/permits/public/BPLO-2026-0001/findings",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.permit.permitNumber).toBe("BPLO-2026-0001");
+    expect(response.body.data.latestInspection).toEqual({
+      completedAt: undefined,
+      id: "inspection-1",
+      scheduledAt: createdAt.toISOString(),
+      status: "in_progress",
+    });
+    expect(response.body.data.findings[0]).toEqual({
+      checklistResultId: undefined,
+      correctiveAction: "Replace damaged signage",
+      createdAt: createdAt.toISOString(),
+      description: "Main signboard is damaged",
+      dueDate: dueDate.toISOString(),
+      id: "finding-1",
+      inspectionId: "inspection-1",
+      location: undefined,
+      resolvedAt: undefined,
+      severity: "high",
+      title: "Damaged Signage",
+      updatedAt: createdAt.toISOString(),
     });
   });
 

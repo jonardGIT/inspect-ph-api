@@ -6,6 +6,7 @@ const DEFAULT_PUBLIC_API_URL = "http://localhost:4000";
 
 export type StorageProvider = "local" | "supabase";
 export type AuthProvider = "local-jwt" | "supabase";
+export type PaymentProvider = "local" | "paymongo";
 
 export interface AppEnv {
   authProvider: AuthProvider;
@@ -15,6 +16,9 @@ export interface AppEnv {
   jwtRefreshExpiresIn: string;
   jwtSecret: string;
   nodeEnv: string;
+  paymentProvider: PaymentProvider;
+  paymongoSecretKey?: string;
+  paymongoWebhookSecret?: string;
   uploadsDir: string;
   port: number;
   publicApiUrl: string;
@@ -89,6 +93,16 @@ function parseAuthProvider(rawValue: string | undefined): AuthProvider {
   return normalized;
 }
 
+function parsePaymentProvider(rawValue: string | undefined): PaymentProvider {
+  const normalized = rawValue?.trim().toLowerCase() || "local";
+
+  if (normalized !== "local" && normalized !== "paymongo") {
+    throw new Error("PAYMENT_PROVIDER must be either local or paymongo");
+  }
+
+  return normalized;
+}
+
 function parseOptionalUrl(
   rawValue: string | undefined,
   name: string,
@@ -131,6 +145,10 @@ export function loadEnv(): AppEnv {
     ),
     jwtSecret: requireEnv("JWT_SECRET"),
     nodeEnv: process.env.NODE_ENV?.trim() || "development",
+    paymentProvider: parsePaymentProvider(process.env.PAYMENT_PROVIDER),
+    paymongoSecretKey: process.env.PAYMONGO_SECRET_KEY?.trim() || undefined,
+    paymongoWebhookSecret:
+      process.env.PAYMONGO_WEBHOOK_SECRET?.trim() || undefined,
     uploadsDir: process.env.UPLOADS_DIR?.trim() || "uploads",
     port,
     publicApiUrl:
