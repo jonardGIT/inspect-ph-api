@@ -1,5 +1,6 @@
 import type { Office, Prisma } from "@prisma/client";
 
+import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateOfficeInput {
@@ -10,6 +11,7 @@ export interface CreateOfficeInput {
 }
 
 export interface ListOfficesInput {
+  jurisdictionScope: JurisdictionScope;
   lguId?: string;
   limit: number;
   page: number;
@@ -41,6 +43,14 @@ function toPublicOffice(record: Office): PublicOffice {
 
 function buildOfficeWhere(input: ListOfficesInput): Prisma.OfficeWhereInput {
   const clauses: Prisma.OfficeWhereInput[] = [];
+
+  if (input.jurisdictionScope.accessScope === "assigned") {
+    clauses.push({
+      id: {
+        in: input.jurisdictionScope.officeIds,
+      },
+    });
+  }
 
   if (input.lguId) {
     clauses.push({ lguId: input.lguId });

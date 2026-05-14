@@ -1,5 +1,6 @@
+import type { Request } from "express";
 import { Router } from "express";
-import { body, query } from "express-validator";
+import { body, param, query } from "express-validator";
 
 import { asyncHandler } from "../lib/async-handler.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
@@ -13,6 +14,10 @@ import {
   login,
   refreshSession,
 } from "../services/auth.js";
+import {
+  listAuthSessions,
+  revokeAuthSession,
+} from "../services/auth-sessions.js";
 import {
   createUserOfficeAssignment,
   deleteUserOfficeAssignment,
@@ -39,6 +44,13 @@ const passwordValidator = body("password")
   .isLength({ min: 8 })
   .withMessage("Password must be at least 8 characters long");
 
+function getRequestSessionContext(request: Request) {
+  return {
+    ipAddress: request.ip || undefined,
+    userAgent: request.header("user-agent") || undefined,
+  };
+}
+
 router.post(
   "/bootstrap-admin",
   authRateLimiter,
@@ -49,11 +61,14 @@ router.post(
     validateRequestMiddleware,
   ],
   asyncHandler(async (request, response) => {
-    const result = await bootstrapAdmin({
-      email: String(request.body.email),
-      name: String(request.body.name),
-      password: String(request.body.password),
-    });
+    const result = await bootstrapAdmin(
+      {
+        email: String(request.body.email),
+        name: String(request.body.name),
+        password: String(request.body.password),
+      },
+      getRequestSessionContext(request),
+    );
 
     response.status(201).json({ data: result });
   }),
@@ -64,10 +79,13 @@ router.post(
   authRateLimiter,
   [emailValidator, passwordValidator, validateRequestMiddleware],
   asyncHandler(async (request, response) => {
-    const result = await login({
-      email: String(request.body.email),
-      password: String(request.body.password),
-    });
+    const result = await login(
+      {
+        email: String(request.body.email),
+        password: String(request.body.password),
+      },
+      getRequestSessionContext(request),
+    );
 
     response.json({ data: result });
   }),
@@ -85,10 +103,55 @@ router.post(
   ],
   asyncHandler(async (request, response) => {
     const result = await refreshSession({
+      ipAddress: request.ip || undefined,
       refreshToken: String(request.body.refreshToken),
+      userAgent: request.header("user-agent") || undefined,
     });
 
     response.json({ data: result });
+  }),
+);
+
+router.get(
+  "/sessions",
+  authenticate,
+  asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      return;
+    }
+
+    const sessions = await listAuthSessions({
+      currentSessionId: request.auth.sid,
+      userId: request.auth.sub,
+    });
+
+    response.json({ data: sessions });
+  }),
+);
+
+router.delete(
+  "/sessions/:sessionId",
+  authenticate,
+  [
+    param("sessionId").isUUID().withMessage("sessionId must be a valid UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      return;
+    }
+
+    const sessionId = Array.isArray(request.params.sessionId)
+      ? request.params.sessionId[0]
+      : request.params.sessionId;
+
+    await revokeAuthSession({
+      actorRole: request.auth.role,
+      actorUserId: request.auth.sub,
+      sessionId,
+    });
+
+    response.status(204).send();
   }),
 );
 
@@ -135,6 +198,24 @@ router.get(
         result.meta.limit,
       ),
     });
+  }),
+);
+
+router.get(
+  "/users/:id/sessions",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [validateRequestMiddleware],
+  asyncHandler(async (request, response) => {
+    const userId = Array.isArray(request.params.id)
+      ? request.params.id[0]
+      : request.params.id;
+    const sessions = await listAuthSessions({
+      currentSessionId: request.auth?.sid,
+      userId,
+    });
+
+    response.json({ data: sessions });
   }),
 );
 

@@ -8,6 +8,7 @@ export interface PublicAuditLog {
     | "attachment.uploaded"
     | "auth.bootstrap_admin"
     | "auth.login"
+    | "auth.session_revoked"
     | "finding.created"
     | "finding.resolved"
     | "inspection.assigned"

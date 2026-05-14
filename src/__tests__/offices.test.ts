@@ -3,6 +3,7 @@ import request from "supertest";
 const mockOfficeCount = jest.fn();
 const mockOfficeCreate = jest.fn();
 const mockOfficeFindMany = jest.fn();
+const mockUserFindUnique = jest.fn();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
@@ -10,6 +11,9 @@ jest.mock("../lib/prisma.js", () => ({
       count: mockOfficeCount,
       create: mockOfficeCreate,
       findMany: mockOfficeFindMany,
+    },
+    user: {
+      findUnique: mockUserFindUnique,
     },
   },
 }));
@@ -20,6 +24,17 @@ import { signAccessToken } from "../lib/jwt.js";
 describe("Office routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserFindUnique.mockResolvedValue({
+      lguId: "11111111-1111-4111-8111-111111111111",
+      officeAssignments: [
+        {
+          office: {
+            id: "22222222-2222-4222-8222-222222222222",
+            lguId: "11111111-1111-4111-8111-111111111111",
+          },
+        },
+      ],
+    });
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
     process.env.JWT_REFRESH_EXPIRES_IN = "7d";
@@ -63,6 +78,37 @@ describe("Office routes", () => {
         updatedAt: createdAt.toISOString(),
       },
     ]);
+    expect(mockOfficeCount).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          {
+            id: {
+              in: ["22222222-2222-4222-8222-222222222222"],
+            },
+          },
+          {
+            lguId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+      },
+    });
+    expect(mockOfficeFindMany).toHaveBeenCalledWith({
+      orderBy: { createdAt: "desc" },
+      skip: 0,
+      take: 10,
+      where: {
+        AND: [
+          {
+            id: {
+              in: ["22222222-2222-4222-8222-222222222222"],
+            },
+          },
+          {
+            lguId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+      },
+    });
   });
 
   it("creates an office for admins", async () => {

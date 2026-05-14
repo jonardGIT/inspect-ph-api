@@ -11,6 +11,7 @@ import { AppError } from "../lib/errors.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { requireJurisdiction } from "../middleware/jurisdiction.js";
 import {
   assignInspection,
   createAttachment,
@@ -19,6 +20,7 @@ import {
   createInspection,
   createFinding,
   getInspectionById,
+  listInspectionMapPoints,
   getInspectionSummary,
   listInspectionHistory,
   listChecklistTemplates,
@@ -117,13 +119,73 @@ function parseFindingSeverity(value: unknown): FindingSeverity | undefined {
 }
 
 router.get(
-  "/summary",
+  "/map-points",
   authenticate,
+  requireJurisdiction(),
   [
     query("from")
       .optional()
       .isISO8601()
       .withMessage("from must be a valid ISO 8601 date"),
+    query("to")
+      .optional()
+      .isISO8601()
+      .withMessage("to must be a valid ISO 8601 date"),
+    query("officeId")
+      .optional()
+      .isUUID()
+      .withMessage("officeId must be a valid UUID"),
+    query("lguId")
+      .optional()
+      .isUUID()
+      .withMessage("lguId must be a valid UUID"),
+    query("status").optional().isString(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
+    }
+
+    const points = await listInspectionMapPoints({
+      actorRole: request.auth.role,
+      actorUserId: request.auth.sub,
+      from:
+        typeof request.query.from === "string" ? request.query.from : undefined,
+      jurisdictionScope: request.jurisdictionScope ?? {
+        accessScope: request.auth.role === "admin" ? "global" : "assigned",
+        lguIds: [],
+        officeIds: [],
+      },
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
+      officeId:
+        typeof request.query.officeId === "string"
+          ? request.query.officeId
+          : undefined,
+      status: parseInspectionStatus(request.query.status),
+      to: typeof request.query.to === "string" ? request.query.to : undefined,
+    });
+
+    response.json({ data: points });
+  }),
+);
+
+router.get(
+  "/summary",
+  authenticate,
+  requireJurisdiction(),
+  [
+    query("from")
+      .optional()
+      .isISO8601()
+      .withMessage("from must be a valid ISO 8601 date"),
+    query("lguId")
+      .optional()
+      .isUUID()
+      .withMessage("lguId must be a valid UUID"),
     query("to")
       .optional()
       .isISO8601()
@@ -140,6 +202,15 @@ router.get(
       actorUserId: request.auth.sub,
       from:
         typeof request.query.from === "string" ? request.query.from : undefined,
+      jurisdictionScope: request.jurisdictionScope ?? {
+        accessScope: request.auth.role === "admin" ? "global" : "assigned",
+        lguIds: [],
+        officeIds: [],
+      },
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
       to: typeof request.query.to === "string" ? request.query.to : undefined,
     });
 
@@ -165,6 +236,7 @@ router.get(
 router.get(
   "/",
   authenticate,
+  requireJurisdiction(),
   [
     query("page")
       .optional()
@@ -186,6 +258,14 @@ router.get(
       .optional()
       .isUUID()
       .withMessage("inspectorId must be a valid UUID"),
+    query("officeId")
+      .optional()
+      .isUUID()
+      .withMessage("officeId must be a valid UUID"),
+    query("lguId")
+      .optional()
+      .isUUID()
+      .withMessage("lguId must be a valid UUID"),
     query("status").optional().isString(),
     validateRequestMiddleware,
   ],
@@ -208,7 +288,20 @@ router.get(
         typeof request.query.inspectorId === "string"
           ? request.query.inspectorId
           : undefined,
+      jurisdictionScope: request.jurisdictionScope ?? {
+        accessScope: request.auth.role === "admin" ? "global" : "assigned",
+        lguIds: [],
+        officeIds: [],
+      },
       limit: pagination.limit,
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
+      officeId:
+        typeof request.query.officeId === "string"
+          ? request.query.officeId
+          : undefined,
       page: pagination.page,
       permitRecordId:
         typeof request.query.permitRecordId === "string"
@@ -282,6 +375,7 @@ router.post(
     body("permitRecordId")
       .isUUID()
       .withMessage("permitRecordId must be a valid UUID"),
+    body("officeId").isUUID().withMessage("officeId must be a valid UUID"),
     body("scheduledAt")
       .isISO8601()
       .withMessage("scheduledAt must be a valid ISO 8601 date"),
@@ -320,6 +414,7 @@ router.post(
           : undefined,
       notes:
         typeof request.body.notes === "string" ? request.body.notes : undefined,
+      officeId: String(request.body.officeId),
       permitRecordId: String(request.body.permitRecordId),
       scheduledAt: String(request.body.scheduledAt),
     });

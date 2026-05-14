@@ -32,9 +32,12 @@ const mockFindingFindFirst = createMock<Promise<unknown>>();
 const mockFindingFindMany = createMock<Promise<unknown[]>>();
 const mockFindingFindUnique = createMock<Promise<unknown>>();
 const mockFindingUpdate = createMock<Promise<unknown>>();
+const mockOfficeFindUnique = createMock<Promise<unknown>>();
 const mockPermitFindUnique = createMock<Promise<unknown>>();
+const mockUserOfficeAssignmentFindFirst = createMock<Promise<unknown>>();
 const mockUserFindFirst = createMock<Promise<unknown>>();
 const mockUserFindMany = createMock<Promise<unknown[]>>();
+const mockUserFindUnique = createMock<Promise<unknown>>();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
@@ -53,6 +56,9 @@ jest.mock("../lib/prisma.js", () => ({
     },
     businessEstablishment: {
       findUnique: mockBusinessFindUnique,
+    },
+    office: {
+      findUnique: mockOfficeFindUnique,
     },
     checklistTemplate: {
       findMany: mockChecklistTemplateFindMany,
@@ -84,6 +90,10 @@ jest.mock("../lib/prisma.js", () => ({
     user: {
       findFirst: mockUserFindFirst,
       findMany: mockUserFindMany,
+      findUnique: mockUserFindUnique,
+    },
+    userOfficeAssignment: {
+      findFirst: mockUserOfficeAssignmentFindFirst,
     },
   },
 }));
@@ -103,6 +113,19 @@ describe("Inspection routes", () => {
     jest.clearAllMocks();
     mockAuditLogCreate.mockResolvedValue(undefined);
     mockNotificationOutboxCreateMany.mockResolvedValue({ count: 1 });
+    mockOfficeFindUnique.mockResolvedValue({ id: "office-1" });
+    mockUserFindUnique.mockResolvedValue({
+      lguId: "11111111-1111-4111-8111-111111111111",
+      officeAssignments: [
+        {
+          office: {
+            id: "office-1",
+            lguId: "11111111-1111-4111-8111-111111111111",
+          },
+        },
+      ],
+    });
+    mockUserOfficeAssignmentFindFirst.mockResolvedValue({ id: "assignment-1" });
     mockUserFindMany.mockResolvedValue([]);
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
@@ -124,6 +147,12 @@ describe("Inspection routes", () => {
         id: "33333333-3333-4333-8333-333333333333",
         inspectorId: "22222222-2222-4222-8222-222222222222",
         notes: "Initial BPLO visit",
+        office: {
+          code: "BPLO-HQ",
+          id: "office-1",
+          lguId: "lgu-1",
+          name: "BPLO Headquarters",
+        },
         permitRecord: {
           id: "44444444-4444-4444-8444-444444444444",
           permitNumber: "BPLO-2026-0001",
@@ -153,6 +182,12 @@ describe("Inspection routes", () => {
       id: "33333333-3333-4333-8333-333333333333",
       inspectorId: "22222222-2222-4222-8222-222222222222",
       notes: "Initial BPLO visit",
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+      },
       permit: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -163,7 +198,126 @@ describe("Inspection routes", () => {
     });
     expect(mockInspectionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { inspectorId: "22222222-2222-4222-8222-222222222222" },
+        where: {
+          AND: [
+            {
+              inspectorId: "22222222-2222-4222-8222-222222222222",
+            },
+            {
+              officeId: {
+                in: ["office-1"],
+              },
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it("lists scoped inspection map points", async () => {
+    const scheduledAt = new Date("2026-05-12T08:00:00.000Z");
+
+    mockInspectionFindMany.mockResolvedValue([
+      {
+        business: {
+          businessName: "North Star Trading",
+          id: "11111111-1111-4111-8111-111111111111",
+        },
+        id: "33333333-3333-4333-8333-333333333333",
+        locationAccuracyMeters: 4,
+        locationLatitude: 17.6132,
+        locationLongitude: 121.727,
+        office: {
+          code: "BPLO-HQ",
+          id: "office-1",
+          lguId: "11111111-1111-4111-8111-111111111111",
+          name: "BPLO Headquarters",
+        },
+        scheduledAt,
+        status: "IN_PROGRESS",
+      },
+    ]);
+
+    const response = await request(app)
+      .get(
+        "/api/v1/inspections/map-points?lguId=11111111-1111-4111-8111-111111111111&status=in_progress",
+      )
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([
+      {
+        business: {
+          businessName: "North Star Trading",
+          id: "11111111-1111-4111-8111-111111111111",
+        },
+        id: "33333333-3333-4333-8333-333333333333",
+        location: {
+          accuracyMeters: 4,
+          latitude: 17.6132,
+          longitude: 121.727,
+        },
+        office: {
+          code: "BPLO-HQ",
+          id: "office-1",
+          lguId: "11111111-1111-4111-8111-111111111111",
+          name: "BPLO Headquarters",
+        },
+        scheduledAt: scheduledAt.toISOString(),
+        status: "in_progress",
+      },
+    ]);
+    expect(mockInspectionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 200,
+        where: {
+          AND: [
+            {
+              office: {
+                lguId: "11111111-1111-4111-8111-111111111111",
+              },
+            },
+            {
+              status: "IN_PROGRESS",
+            },
+            {
+              locationLatitude: { not: null },
+              locationLongitude: { not: null },
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it("filters inspections by LGU for authenticated admins", async () => {
+    mockInspectionCount.mockResolvedValue(0);
+    mockInspectionFindMany.mockResolvedValue([]);
+
+    const response = await request(app)
+      .get(
+        "/api/v1/inspections?page=1&limit=5&lguId=11111111-1111-4111-8111-111111111111",
+      )
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(mockInspectionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            {
+              office: {
+                lguId: "11111111-1111-4111-8111-111111111111",
+              },
+            },
+          ],
+        },
       }),
     );
   });
@@ -181,6 +335,12 @@ describe("Inspection routes", () => {
       id: "33333333-3333-4333-8333-333333333333",
       inspectorId: "22222222-2222-4222-8222-222222222222",
       notes: null,
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -205,6 +365,13 @@ describe("Inspection routes", () => {
         where: {
           id: "33333333-3333-4333-8333-333333333333",
           inspectorId: "22222222-2222-4222-8222-222222222222",
+          office: {
+            userAssignments: {
+              some: {
+                userId: "22222222-2222-4222-8222-222222222222",
+              },
+            },
+          },
         },
       }),
     );
@@ -227,6 +394,12 @@ describe("Inspection routes", () => {
       id: "33333333-3333-4333-8333-333333333333",
       inspectorId: "22222222-2222-4222-8222-222222222222",
       notes: null,
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -357,6 +530,12 @@ describe("Inspection routes", () => {
       locationLatitude: 17.6132,
       locationLongitude: 121.727,
       notes: "Initial BPLO visit",
+      office: {
+        code: "BPLO-HQ",
+        id: "55555555-5555-4555-8555-555555555555",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -380,6 +559,7 @@ describe("Inspection routes", () => {
         latitude: 17.6132,
         longitude: 121.727,
         notes: "Initial BPLO visit",
+        officeId: "55555555-5555-4555-8555-555555555555",
         permitRecordId: "44444444-4444-4444-8444-444444444444",
         scheduledAt: "2026-05-12T08:00:00.000Z",
       });
@@ -389,6 +569,12 @@ describe("Inspection routes", () => {
       accuracyMeters: 6,
       latitude: 17.6132,
       longitude: 121.727,
+    });
+    expect(response.body.data.office).toEqual({
+      code: "BPLO-HQ",
+      id: "55555555-5555-4555-8555-555555555555",
+      lguId: "lgu-1",
+      name: "BPLO Headquarters",
     });
     expect(response.body.data.status).toBe("scheduled");
     expect(mockAuditLogCreate).toHaveBeenCalledWith({
@@ -417,6 +603,7 @@ describe("Inspection routes", () => {
         locationLatitude: 17.6132,
         locationLongitude: 121.727,
         notes: "Initial BPLO visit",
+        officeId: "55555555-5555-4555-8555-555555555555",
         permitRecordId: "44444444-4444-4444-8444-444444444444",
         scheduledAt: new Date("2026-05-12T08:00:00.000Z"),
       },
@@ -425,6 +612,14 @@ describe("Inspection routes", () => {
           select: {
             businessName: true,
             id: true,
+          },
+        },
+        office: {
+          select: {
+            code: true,
+            id: true,
+            lguId: true,
+            name: true,
           },
         },
         permitRecord: {
@@ -442,6 +637,7 @@ describe("Inspection routes", () => {
 
     mockInspectionFindUnique.mockResolvedValue({
       id: "33333333-3333-4333-8333-333333333333",
+      officeId: "office-1",
     });
     mockUserFindFirst.mockResolvedValue({
       id: "22222222-2222-4222-8222-222222222222",
@@ -456,6 +652,12 @@ describe("Inspection routes", () => {
       id: "33333333-3333-4333-8333-333333333333",
       inspectorId: "22222222-2222-4222-8222-222222222222",
       notes: null,
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -522,6 +724,12 @@ describe("Inspection routes", () => {
       id: "33333333-3333-4333-8333-333333333333",
       inspectorId: "22222222-2222-4222-8222-222222222222",
       notes: "Initial BPLO visit",
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -544,6 +752,12 @@ describe("Inspection routes", () => {
       locationLatitude: 17.614,
       locationLongitude: 121.728,
       notes: "Inspector on site",
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -654,7 +868,48 @@ describe("Inspection routes", () => {
     });
     expect(mockInspectionCount).toHaveBeenNthCalledWith(1, {
       where: {
-        inspectorId: "22222222-2222-4222-8222-222222222222",
+        AND: [
+          {
+            inspectorId: "22222222-2222-4222-8222-222222222222",
+          },
+          {
+            officeId: {
+              in: ["office-1"],
+            },
+          },
+        ],
+        status: "SCHEDULED",
+      },
+    });
+  });
+
+  it("filters inspection summary counts by LGU for admins", async () => {
+    mockInspectionCount
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+
+    const response = await request(app)
+      .get(
+        "/api/v1/inspections/summary?lguId=11111111-1111-4111-8111-111111111111",
+      )
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(mockInspectionCount).toHaveBeenNthCalledWith(1, {
+      where: {
+        AND: [
+          {
+            office: {
+              lguId: "11111111-1111-4111-8111-111111111111",
+            },
+          },
+        ],
         status: "SCHEDULED",
       },
     });

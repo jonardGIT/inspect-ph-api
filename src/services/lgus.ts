@@ -1,5 +1,6 @@
 import type { Lgu, Prisma } from "@prisma/client";
 
+import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateLguInput {
@@ -11,6 +12,7 @@ export interface CreateLguInput {
 }
 
 export interface ListLgusInput {
+  jurisdictionScope: JurisdictionScope;
   limit: number;
   page: number;
   search?: string;
@@ -43,6 +45,14 @@ function toPublicLgu(record: Lgu): PublicLgu {
 
 function buildLguWhere(input: ListLgusInput): Prisma.LguWhereInput {
   const clauses: Prisma.LguWhereInput[] = [];
+
+  if (input.jurisdictionScope.accessScope === "assigned") {
+    clauses.push({
+      id: {
+        in: input.jurisdictionScope.lguIds,
+      },
+    });
+  }
 
   if (input.search?.trim()) {
     const value = input.search.trim();

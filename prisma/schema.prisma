@@ -7,6 +7,310 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                        String                 @id @default(uuid())
+  email                     String                 @unique
+  name                      String
+  passwordHash              String
+  role                      UserRole               @default(INSPECTOR)
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  lguId                     String?
+  auditLogs                 AuditLog[]
+  authSessions              AuthSession[]
+  assignedInspections       Inspection[]           @relation("InspectionInspector")
+  notificationOutboxEntries NotificationOutbox[]
+  createdPermitRecords      PermitRecord[]         @relation("PermitRecordCreator")
+  lgu                       Lgu?                   @relation(fields: [lguId], references: [id])
+  officeAssignments         UserOfficeAssignment[]
+
+  @@index([lguId])
+}
+
+model Lgu {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  region    String?
+  province  String?
+  city      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  offices   Office[]
+  users     User[]
+
+  @@index([name])
+  @@index([region, province, city])
+}
+
+model Office {
+  id                String                 @id @default(uuid())
+  lguId             String
+  code              String
+  name              String
+  description       String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  inspections       Inspection[]
+  lgu               Lgu                    @relation(fields: [lguId], references: [id], onDelete: Cascade)
+  moduleAssignments OfficeModule[]
+  userAssignments   UserOfficeAssignment[]
+
+  @@unique([lguId, code])
+  @@index([lguId])
+  @@index([name])
+}
+
+model UserOfficeAssignment {
+  id        String   @id @default(uuid())
+  userId    String
+  officeId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  office    Office   @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, officeId])
+  @@index([userId])
+  @@index([officeId])
+}
+
+model Module {
+  id                String         @id @default(uuid())
+  code              String         @unique
+  name              String
+  description       String?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  officeAssignments OfficeModule[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model OfficeModule {
+  id        String   @id @default(uuid())
+  officeId  String
+  moduleId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  office    Office   @relation(fields: [officeId], references: [id], onDelete: Cascade)
+
+  @@unique([officeId, moduleId])
+  @@index([officeId])
+  @@index([moduleId])
+}
+
+model AuthSession {
+  id               String    @id @default(uuid())
+  userId           String
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  lastUsedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+model AuditLog {
+  id          String    @id @default(uuid())
+  actorUserId String?
+  actorRole   UserRole?
+  action      String
+  entityType  String
+  entityId    String?
+  summary     String
+  detail      String?
+  createdAt   DateTime  @default(now())
+  actor       User?     @relation(fields: [actorUserId], references: [id])
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+model NotificationOutbox {
+  id              String                   @id @default(uuid())
+  recipientUserId String
+  channel         NotificationChannel      @default(IN_APP)
+  eventType       String
+  title           String
+  body            String
+  entityType      String?
+  entityId        String?
+  status          NotificationOutboxStatus @default(PENDING)
+  processedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  recipient       User                     @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUserId])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BusinessEstablishment {
+  id                      String         @id @default(uuid())
+  businessName            String
+  tradeName               String?
+  ownerName               String
+  taxIdentificationNumber String?
+  addressLine             String
+  barangay                String
+  city                    String
+  province                String
+  contactNumber           String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  inspections             Inspection[]
+  permitRecords           PermitRecord[]
+
+  @@index([businessName])
+  @@index([barangay, city])
+}
+
+model PermitRecord {
+  id              String                @id @default(uuid())
+  businessId      String
+  permitNumber    String                @unique
+  applicationDate DateTime
+  expirationDate  DateTime
+  lineOfBusiness  String
+  status          PermitStatus          @default(PENDING_INSPECTION)
+  createdById     String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  inspections     Inspection[]
+  business        BusinessEstablishment @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdBy       User?                 @relation("PermitRecordCreator", fields: [createdById], references: [id])
+
+  @@index([businessId])
+  @@index([createdById])
+  @@index([status])
+  @@index([expirationDate])
+}
+
+model Inspection {
+  id                     String                      @id @default(uuid())
+  businessId             String
+  permitRecordId         String
+  officeId               String
+  inspectorId            String?
+  scheduledAt            DateTime
+  startedAt              DateTime?
+  completedAt            DateTime?
+  status                 InspectionStatus            @default(SCHEDULED)
+  notes                  String?
+  locationLatitude       Float?
+  locationLongitude      Float?
+  locationAccuracyMeters Float?
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  attachments            Attachment[]
+  findings               Finding[]
+  business               BusinessEstablishment       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  inspector              User?                       @relation("InspectionInspector", fields: [inspectorId], references: [id])
+  office                 Office                      @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  permitRecord           PermitRecord                @relation(fields: [permitRecordId], references: [id], onDelete: Cascade)
+  checklistResults       InspectionChecklistResult[]
+
+  @@index([businessId])
+  @@index([permitRecordId])
+  @@index([officeId])
+  @@index([inspectorId])
+  @@index([status, scheduledAt])
+}
+
+model ChecklistTemplate {
+  id          String                      @id @default(uuid())
+  module      String
+  code        String                      @unique
+  title       String
+  description String?
+  sortOrder   Int                         @default(0)
+  isActive    Boolean                     @default(true)
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+  results     InspectionChecklistResult[]
+
+  @@index([module, isActive])
+}
+
+model InspectionChecklistResult {
+  id           String                @id @default(uuid())
+  inspectionId String
+  templateId   String
+  status       ChecklistResultStatus
+  remarks      String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  findings     Finding[]
+  inspection   Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  template     ChecklistTemplate     @relation(fields: [templateId], references: [id])
+
+  @@unique([inspectionId, templateId])
+  @@index([templateId])
+  @@index([status])
+}
+
+model Finding {
+  id                     String                     @id @default(uuid())
+  inspectionId           String
+  checklistResultId      String?
+  severity               FindingSeverity
+  title                  String
+  description            String
+  correctiveAction       String?
+  dueDate                DateTime?
+  resolvedAt             DateTime?
+  locationLatitude       Float?
+  locationLongitude      Float?
+  locationAccuracyMeters Float?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  attachments            Attachment[]
+  checklistResult        InspectionChecklistResult? @relation(fields: [checklistResultId], references: [id])
+  inspection             Inspection                 @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@index([inspectionId])
+  @@index([checklistResultId])
+  @@index([severity])
+}
+
+model Attachment {
+  id                     String     @id @default(uuid())
+  inspectionId           String
+  findingId              String?
+  fileName               String
+  mimeType               String
+  fileSizeBytes          Int
+  storageKey             String     @unique
+  capturedAt             DateTime?
+  locationLatitude       Float?
+  locationLongitude      Float?
+  locationAccuracyMeters Float?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+  finding                Finding?   @relation(fields: [findingId], references: [id])
+  inspection             Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@index([inspectionId])
+  @@index([findingId])
+  @@index([capturedAt])
+}
+
 enum UserRole {
   ADMIN
   INSPECTOR
@@ -49,256 +353,4 @@ enum NotificationOutboxStatus {
   PENDING
   PROCESSED
   FAILED
-}
-
-model User {
-  id                  String         @id @default(uuid())
-  email               String         @unique
-  name                String
-  passwordHash        String
-  role                UserRole       @default(INSPECTOR)
-  lguId               String?
-  auditLogs           AuditLog[]
-  notificationOutboxEntries NotificationOutbox[]
-  createdPermitRecords PermitRecord[] @relation("PermitRecordCreator")
-  assignedInspections Inspection[]   @relation("InspectionInspector")
-  officeAssignments   UserOfficeAssignment[]
-  lgu                 Lgu?           @relation(fields: [lguId], references: [id], onDelete: SetNull)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-
-  @@index([lguId])
-}
-
-model Lgu {
-  id          String   @id @default(uuid())
-  code        String   @unique
-  name        String
-  region      String?
-  province    String?
-  city        String?
-  users       User[]
-  offices     Office[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([name])
-  @@index([region, province, city])
-}
-
-model Office {
-  id          String   @id @default(uuid())
-  lguId       String
-  code        String
-  name        String
-  description String?
-  lgu         Lgu      @relation(fields: [lguId], references: [id], onDelete: Cascade)
-  userAssignments UserOfficeAssignment[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([lguId, code])
-  @@index([lguId])
-  @@index([name])
-}
-
-model UserOfficeAssignment {
-  id         String   @id @default(uuid())
-  userId     String
-  officeId   String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  office     Office   @relation(fields: [officeId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([userId, officeId])
-  @@index([userId])
-  @@index([officeId])
-}
-
-model AuditLog {
-  id          String   @id @default(uuid())
-  actorUserId String?
-  actorRole   UserRole?
-  action      String
-  entityType  String
-  entityId    String?
-  summary     String
-  detail      String?
-  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
-
-  @@index([actorUserId])
-  @@index([action])
-  @@index([entityType])
-  @@index([createdAt])
-}
-
-model NotificationOutbox {
-  id              String                  @id @default(uuid())
-  recipientUserId String
-  channel         NotificationChannel     @default(IN_APP)
-  eventType       String
-  title           String
-  body            String
-  entityType      String?
-  entityId        String?
-  status          NotificationOutboxStatus @default(PENDING)
-  processedAt     DateTime?
-  errorMessage    String?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
-  recipient       User                    @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
-
-  @@index([recipientUserId])
-  @@index([eventType])
-  @@index([status])
-  @@index([createdAt])
-}
-
-model BusinessEstablishment {
-  id                      String         @id @default(uuid())
-  businessName            String
-  tradeName               String?
-  ownerName               String
-  taxIdentificationNumber String?
-  addressLine             String
-  barangay                String
-  city                    String
-  province                String
-  contactNumber           String?
-  permitRecords           PermitRecord[]
-  inspections             Inspection[]
-  createdAt               DateTime       @default(now())
-  updatedAt               DateTime       @updatedAt
-
-  @@index([businessName])
-  @@index([barangay, city])
-}
-
-model PermitRecord {
-  id                String          @id @default(uuid())
-  businessId        String
-  permitNumber      String          @unique
-  applicationDate   DateTime
-  expirationDate    DateTime
-  lineOfBusiness    String
-  status            PermitStatus    @default(PENDING_INSPECTION)
-  createdById       String?
-  business          BusinessEstablishment @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  createdBy         User?           @relation("PermitRecordCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  inspections       Inspection[]
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-
-  @@index([businessId])
-  @@index([createdById])
-  @@index([status])
-  @@index([expirationDate])
-}
-
-model Inspection {
-  id               String                  @id @default(uuid())
-  businessId       String
-  permitRecordId   String
-  inspectorId      String?
-  scheduledAt      DateTime
-  startedAt        DateTime?
-  completedAt      DateTime?
-  status           InspectionStatus        @default(SCHEDULED)
-  notes            String?
-  locationLatitude Float?
-  locationLongitude Float?
-  locationAccuracyMeters Float?
-  business         BusinessEstablishment   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  permitRecord     PermitRecord            @relation(fields: [permitRecordId], references: [id], onDelete: Cascade)
-  inspector        User?                   @relation("InspectionInspector", fields: [inspectorId], references: [id], onDelete: SetNull)
-  checklistResults InspectionChecklistResult[]
-  findings         Finding[]
-  attachments      Attachment[]
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-
-  @@index([businessId])
-  @@index([permitRecordId])
-  @@index([inspectorId])
-  @@index([status, scheduledAt])
-}
-
-model ChecklistTemplate {
-  id          String                  @id @default(uuid())
-  module      String
-  code        String                  @unique
-  title       String
-  description String?
-  sortOrder   Int                     @default(0)
-  isActive    Boolean                 @default(true)
-  results     InspectionChecklistResult[]
-  createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
-
-  @@index([module, isActive])
-}
-
-model InspectionChecklistResult {
-  id                String                @id @default(uuid())
-  inspectionId      String
-  templateId        String
-  status            ChecklistResultStatus
-  remarks           String?
-  inspection        Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  template          ChecklistTemplate     @relation(fields: [templateId], references: [id], onDelete: Restrict)
-  findings          Finding[]
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-
-  @@unique([inspectionId, templateId])
-  @@index([templateId])
-  @@index([status])
-}
-
-model Finding {
-  id                String                @id @default(uuid())
-  inspectionId      String
-  checklistResultId String?
-  severity          FindingSeverity
-  title             String
-  description       String
-  correctiveAction  String?
-  dueDate           DateTime?
-  resolvedAt        DateTime?
-  locationLatitude  Float?
-  locationLongitude Float?
-  locationAccuracyMeters Float?
-  inspection        Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  checklistResult   InspectionChecklistResult? @relation(fields: [checklistResultId], references: [id], onDelete: SetNull)
-  attachments       Attachment[]
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-
-  @@index([inspectionId])
-  @@index([checklistResultId])
-  @@index([severity])
-}
-
-model Attachment {
-  id                    String      @id @default(uuid())
-  inspectionId          String
-  findingId             String?
-  fileName              String
-  mimeType              String
-  fileSizeBytes         Int
-  storageKey            String      @unique
-  capturedAt            DateTime?
-  locationLatitude      Float?
-  locationLongitude     Float?
-  locationAccuracyMeters Float?
-  inspection            Inspection  @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  finding               Finding?    @relation(fields: [findingId], references: [id], onDelete: SetNull)
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
-
-  @@index([inspectionId])
-  @@index([findingId])
-  @@index([capturedAt])
 }

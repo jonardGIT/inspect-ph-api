@@ -5,7 +5,9 @@ interface MockUserRecord {
   createdAt: Date;
   email: string;
   id: string;
+  lguId: string | null;
   name: string;
+  officeAssignments: Array<{ officeId: string }>;
   passwordHash: string;
   role: "ADMIN" | "INSPECTOR";
   updatedAt: Date;
@@ -22,6 +24,10 @@ type CreateUserArgs = {
 
 const mockUserCount = jest.fn<() => Promise<number>>();
 const mockAuditLogCreate = jest.fn<(args: unknown) => Promise<void>>();
+const mockAuthSessionCreate = jest.fn<(args: unknown) => Promise<unknown>>();
+const mockAuthSessionFindMany = jest.fn<() => Promise<unknown[]>>();
+const mockAuthSessionFindUnique = jest.fn<() => Promise<unknown>>();
+const mockAuthSessionUpdate = jest.fn<(args: unknown) => Promise<unknown>>();
 const mockUserCreate =
   jest.fn<(args: CreateUserArgs) => Promise<MockUserRecord>>();
 const mockUserFindMany = jest.fn<() => Promise<MockUserRecord[]>>();
@@ -36,6 +42,12 @@ const mockUserOfficeAssignmentDelete =
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
+    authSession: {
+      create: mockAuthSessionCreate,
+      findMany: mockAuthSessionFindMany,
+      findUnique: mockAuthSessionFindUnique,
+      update: mockAuthSessionUpdate,
+    },
     auditLog: {
       create: mockAuditLogCreate,
     },
@@ -66,6 +78,10 @@ describe("Auth routes", () => {
     jest.clearAllMocks();
     resetRateLimitStoreForTests();
     mockAuditLogCreate.mockResolvedValue(undefined);
+    mockAuthSessionCreate.mockResolvedValue(undefined);
+    mockAuthSessionFindMany.mockResolvedValue([]);
+    mockAuthSessionFindUnique.mockResolvedValue(null);
+    mockAuthSessionUpdate.mockResolvedValue(undefined);
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
     process.env.JWT_REFRESH_EXPIRES_IN = "7d";
@@ -80,7 +96,9 @@ describe("Auth routes", () => {
       createdAt,
       email: data.email,
       id: "user-1",
+      lguId: null,
       name: data.name,
+      officeAssignments: [],
       passwordHash: data.passwordHash,
       role: data.role,
       updatedAt: createdAt,
@@ -100,11 +118,27 @@ describe("Auth routes", () => {
       email: "admin@example.com",
       id: "user-1",
       name: "System Admin",
+      officeIds: [],
       role: "admin",
+      roleProfile: {
+        accessScope: "global",
+        label: "BPLO Admin",
+        permissions: [
+          "business:create",
+          "business:read",
+          "business:update",
+          "permit:create",
+          "permit:read",
+          "permit:update",
+          "inspection:assign",
+          "inspection:read",
+        ],
+      },
     });
     expect(response.body.data.tokens.accessToken).toEqual(expect.any(String));
     expect(response.body.data.tokens.refreshToken).toEqual(expect.any(String));
     expect(response.body.data.tokens.expiresIn).toBe(900);
+    expect(mockAuthSessionCreate).toHaveBeenCalled();
     expect(mockUserCreate.mock.calls[0][0].data.passwordHash).not.toBe(
       "password123",
     );
@@ -136,7 +170,9 @@ describe("Auth routes", () => {
       createdAt,
       email: "inspector@example.com",
       id: "user-2",
+      lguId: null,
       name: "Field Inspector",
+      officeAssignments: [],
       passwordHash: await hashPassword("password123"),
       role: "INSPECTOR",
       updatedAt: createdAt,
@@ -153,10 +189,22 @@ describe("Auth routes", () => {
       email: "inspector@example.com",
       id: "user-2",
       name: "Field Inspector",
+      officeIds: [],
       role: "inspector",
+      roleProfile: {
+        accessScope: "assigned",
+        label: "Field Inspector",
+        permissions: [
+          "business:read",
+          "permit:read",
+          "inspection:read",
+          "inspection:update:assigned",
+        ],
+      },
     });
     expect(response.body.data.tokens.accessToken).toEqual(expect.any(String));
     expect(response.body.data.tokens.refreshToken).toEqual(expect.any(String));
+    expect(mockAuthSessionCreate).toHaveBeenCalled();
     expect(mockAuditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: "auth.login",
@@ -188,7 +236,9 @@ describe("Auth routes", () => {
       createdAt,
       email: "admin@example.com",
       id: "user-1",
+      lguId: null,
       name: "System Admin",
+      officeAssignments: [],
       passwordHash: "ignored",
       role: "ADMIN",
       updatedAt: createdAt,
@@ -208,7 +258,22 @@ describe("Auth routes", () => {
         email: "admin@example.com",
         id: "user-1",
         name: "System Admin",
+        officeIds: [],
         role: "admin",
+        roleProfile: {
+          accessScope: "global",
+          label: "BPLO Admin",
+          permissions: [
+            "business:create",
+            "business:read",
+            "business:update",
+            "permit:create",
+            "permit:read",
+            "permit:update",
+            "inspection:assign",
+            "inspection:read",
+          ],
+        },
       },
     });
   });
@@ -223,7 +288,9 @@ describe("Auth routes", () => {
         createdAt,
         email: "inspector@example.com",
         id: "user-2",
+        lguId: null,
         name: "Field Inspector",
+        officeAssignments: [],
         passwordHash: "ignored",
         role: "INSPECTOR",
         updatedAt: createdAt,
@@ -246,7 +313,18 @@ describe("Auth routes", () => {
           email: "inspector@example.com",
           id: "user-2",
           name: "Field Inspector",
+          officeIds: [],
           role: "inspector",
+          roleProfile: {
+            accessScope: "assigned",
+            label: "Field Inspector",
+            permissions: [
+              "business:read",
+              "permit:read",
+              "inspection:read",
+              "inspection:update:assigned",
+            ],
+          },
         },
       ],
       meta: {
@@ -330,6 +408,143 @@ describe("Auth routes", () => {
     });
   });
 
+  it("lists the active sessions for the current user", async () => {
+    const createdAt = new Date("2026-05-15T08:00:00.000Z");
+
+    mockAuthSessionFindUnique.mockResolvedValue({
+      createdAt,
+      expiresAt: new Date("2026-05-22T08:00:00.000Z"),
+      id: "11111111-1111-4111-8111-111111111111",
+      ipAddress: "127.0.0.1",
+      lastUsedAt: createdAt,
+      refreshTokenHash: "ignored",
+      revokedAt: null,
+      updatedAt: createdAt,
+      userId: "user-1",
+    });
+    mockAuthSessionFindMany.mockResolvedValue([
+      {
+        createdAt,
+        expiresAt: new Date("2026-05-22T08:00:00.000Z"),
+        id: "11111111-1111-4111-8111-111111111111",
+        ipAddress: "127.0.0.1",
+        lastUsedAt: createdAt,
+        revokedAt: null,
+        updatedAt: createdAt,
+        user: {
+          email: "admin@example.com",
+          id: "user-1",
+          name: "System Admin",
+          role: "ADMIN",
+        },
+        userAgent: "jest",
+        userId: "user-1",
+      },
+    ]);
+
+    const response = await request(app)
+      .get("/api/v1/auth/sessions")
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sid: "11111111-1111-4111-8111-111111111111", sub: "user-1" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data[0]).toEqual({
+      createdAt: createdAt.toISOString(),
+      expiresAt: "2026-05-22T08:00:00.000Z",
+      id: "11111111-1111-4111-8111-111111111111",
+      ipAddress: "127.0.0.1",
+      isCurrent: true,
+      lastUsedAt: createdAt.toISOString(),
+      user: {
+        email: "admin@example.com",
+        id: "user-1",
+        name: "System Admin",
+        role: "admin",
+      },
+      userAgent: "jest",
+    });
+  });
+
+  it("allows an admin to list another user's active sessions", async () => {
+    const createdAt = new Date("2026-05-15T08:00:00.000Z");
+
+    mockAuthSessionFindMany.mockResolvedValue([
+      {
+        createdAt,
+        expiresAt: new Date("2026-05-22T08:00:00.000Z"),
+        id: "22222222-2222-4222-8222-222222222222",
+        ipAddress: "10.0.0.8",
+        lastUsedAt: createdAt,
+        revokedAt: null,
+        updatedAt: createdAt,
+        user: {
+          email: "inspector@example.com",
+          id: "user-2",
+          name: "Field Inspector",
+          role: "INSPECTOR",
+        },
+        userAgent: "mobile",
+        userId: "user-2",
+      },
+    ]);
+
+    const response = await request(app)
+      .get("/api/v1/auth/users/user-2/sessions")
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "user-1" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toHaveLength(1);
+  });
+
+  it("revokes an owned session", async () => {
+    const createdAt = new Date("2026-05-15T08:00:00.000Z");
+
+    mockAuthSessionFindUnique.mockResolvedValue({
+      createdAt,
+      expiresAt: new Date("2026-05-22T08:00:00.000Z"),
+      id: "11111111-1111-4111-8111-111111111111",
+      ipAddress: "127.0.0.1",
+      lastUsedAt: createdAt,
+      refreshTokenHash: "ignored",
+      revokedAt: null,
+      updatedAt: createdAt,
+      user: {
+        email: "inspector@example.com",
+        id: "user-2",
+        name: "Field Inspector",
+        role: "INSPECTOR",
+      },
+      userAgent: "mobile",
+      userId: "user-2",
+    });
+
+    const response = await request(app)
+      .delete("/api/v1/auth/sessions/11111111-1111-4111-8111-111111111111")
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "inspector", sub: "user-2" })}`,
+      );
+
+    expect(response.status).toBe(204);
+    expect(mockAuthSessionUpdate).toHaveBeenCalledWith({
+      data: { revokedAt: expect.any(Date) },
+      where: { id: "11111111-1111-4111-8111-111111111111" },
+    });
+    expect(mockAuditLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "auth.session_revoked",
+        actorUserId: "user-2",
+        entityId: "user-2",
+        entityType: "user",
+      }),
+    });
+  });
+
   it("creates a user office assignment for an authenticated admin", async () => {
     const createdAt = new Date("2026-05-12T08:00:00.000Z");
 
@@ -337,7 +552,9 @@ describe("Auth routes", () => {
       createdAt,
       email: "inspector@example.com",
       id: "user-2",
+      lguId: null,
       name: "Field Inspector",
+      officeAssignments: [],
       passwordHash: "ignored",
       role: "INSPECTOR",
       updatedAt: createdAt,

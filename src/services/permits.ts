@@ -1,6 +1,7 @@
 import type { PermitRecord, Prisma } from "@prisma/client";
 
 import { AppError } from "../lib/errors.js";
+import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreatePermitInput {
@@ -14,6 +15,7 @@ export interface CreatePermitInput {
 
 export interface ListPermitsInput {
   businessId?: string;
+  jurisdictionScope: JurisdictionScope;
   limit: number;
   page: number;
   skip: number;
@@ -68,6 +70,17 @@ function toPublicPermit(record: PermitRecordWithBusiness): PublicPermit {
 
 function buildPermitWhere(input: ListPermitsInput) {
   return {
+    ...(input.jurisdictionScope.accessScope === "assigned"
+      ? {
+          inspections: {
+            some: {
+              officeId: {
+                in: input.jurisdictionScope.officeIds,
+              },
+            },
+          },
+        }
+      : {}),
     ...(input.businessId ? { businessId: input.businessId } : {}),
     ...(input.status ? { status: input.status } : {}),
   };

@@ -1,5 +1,6 @@
 import type { BusinessEstablishment, Prisma } from "@prisma/client";
 
+import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateBusinessInput {
@@ -17,6 +18,7 @@ export interface CreateBusinessInput {
 export interface ListBusinessesInput {
   barangay?: string;
   city?: string;
+  jurisdictionScope: JurisdictionScope;
   limit: number;
   page: number;
   search?: string;
@@ -57,6 +59,18 @@ function toPublicBusiness(record: BusinessEstablishment): PublicBusiness {
 
 function buildBusinessWhere(input: ListBusinessesInput) {
   const clauses: Prisma.BusinessEstablishmentWhereInput[] = [];
+
+  if (input.jurisdictionScope.accessScope === "assigned") {
+    clauses.push({
+      inspections: {
+        some: {
+          officeId: {
+            in: input.jurisdictionScope.officeIds,
+          },
+        },
+      },
+    });
+  }
 
   if (input.city) {
     clauses.push({ city: { equals: input.city.trim(), mode: "insensitive" } });

@@ -5,7 +5,15 @@ import { AppError } from "../lib/errors.js";
 import { comparePassword, hashPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
 import { recordAuditLog } from "./audit-logs.js";
-import { normalizeUserRoleInput } from "../types/auth.js";
+import {
+  assertRefreshSessionActive,
+  issueAuthSessionTokens,
+} from "./auth-sessions.js";
+import {
+  normalizeUserRoleInput,
+  ROLE_PROFILES,
+  type AccessScope,
+} from "../types/auth.js";
 
 interface BootstrapAdminInput {
   email: string;
@@ -19,7 +27,9 @@ interface LoginInput {
 }
 
 interface RefreshInput {
+  ipAddress?: string;
   refreshToken: string;
+  userAgent?: string;
 }
 
 interface ListUsersInput {
@@ -34,9 +44,26 @@ interface PublicUser {
   createdAt: string;
   email: string;
   id: string;
+  lguId?: string;
   name: string;
+  officeIds: string[];
   role: AuthRole;
+  roleProfile: {
+    accessScope: AccessScope;
+    label: string;
+    permissions: string[];
+  };
 }
+
+type UserWithScope = Prisma.UserGetPayload<{
+  include: {
+    officeAssignments: {
+      select: {
+        officeId: true;
+      };
+    };
+  };
+}>;
 
 interface AuthResult {
   tokens: {
@@ -57,13 +84,23 @@ function mapUserRole(role: User["role"]): AuthRole {
   return mappedRole;
 }
 
-function toPublicUser(user: User): PublicUser {
+function toPublicUser(user: UserWithScope): PublicUser {
+  const role = mapUserRole(user.role);
+  const roleProfile = ROLE_PROFILES[role];
+
   return {
     createdAt: user.createdAt.toISOString(),
     email: user.email,
     id: user.id,
+    lguId: user.lguId ?? undefined,
     name: user.name,
-    role: mapUserRole(user.role),
+    officeIds: user.officeAssignments.map((assignment) => assignment.officeId),
+    role,
+    roleProfile: {
+      accessScope: roleProfile.scope,
+      label: roleProfile.label,
+      permissions: [...roleProfile.permissions],
+    },
   };
 }
 
@@ -97,17 +134,9 @@ function buildUserWhere(input: ListUsersInput): Prisma.UserWhereInput {
   return { AND: clauses };
 }
 
-async function issueTokens(user: User): Promise<AuthResult["tokens"]> {
-  const payload = {
-    role: mapUserRole(user.role),
-    sub: user.id,
-  };
-
-  return getAuthProvider().issueTokens(payload);
-}
-
 export async function bootstrapAdmin(
   input: BootstrapAdminInput,
+  sessionContext?: { ipAddress?: string; userAgent?: string },
 ): Promise<AuthResult> {
   const userCount = await prisma.user.count();
 
@@ -126,6 +155,13 @@ export async function bootstrapAdmin(
       passwordHash: await hashPassword(input.password),
       role: "ADMIN",
     },
+    include: {
+      officeAssignments: {
+        select: {
+          officeId: true,
+        },
+      },
+    },
   });
 
   await recordAuditLog({
@@ -138,13 +174,30 @@ export async function bootstrapAdmin(
   });
 
   return {
-    tokens: await issueTokens(user),
+    tokens: (
+      await issueAuthSessionTokens({
+        ipAddress: sessionContext?.ipAddress,
+        userAgent: sessionContext?.userAgent,
+        userId: user.id,
+        userRole: mapUserRole(user.role),
+      })
+    ).tokens,
     user: toPublicUser(user),
   };
 }
 
-export async function login(input: LoginInput): Promise<AuthResult> {
+export async function login(
+  input: LoginInput,
+  sessionContext?: { ipAddress?: string; userAgent?: string },
+): Promise<AuthResult> {
   const user = await prisma.user.findUnique({
+    include: {
+      officeAssignments: {
+        select: {
+          officeId: true,
+        },
+      },
+    },
     where: {
       email: input.email.trim().toLowerCase(),
     },
@@ -173,7 +226,14 @@ export async function login(input: LoginInput): Promise<AuthResult> {
   });
 
   return {
-    tokens: await issueTokens(user),
+    tokens: (
+      await issueAuthSessionTokens({
+        ipAddress: sessionContext?.ipAddress,
+        userAgent: sessionContext?.userAgent,
+        userId: user.id,
+        userRole: mapUserRole(user.role),
+      })
+    ).tokens,
     user: toPublicUser(user),
   };
 }
@@ -183,6 +243,13 @@ export async function refreshSession(input: RefreshInput): Promise<AuthResult> {
     input.refreshToken,
   );
   const user = await prisma.user.findUnique({
+    include: {
+      officeAssignments: {
+        select: {
+          officeId: true,
+        },
+      },
+    },
     where: {
       id: payload.sub,
     },
@@ -192,14 +259,39 @@ export async function refreshSession(input: RefreshInput): Promise<AuthResult> {
     throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
   }
 
+  if (!payload.sid) {
+    throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
+  }
+
+  await assertRefreshSessionActive({
+    refreshToken: input.refreshToken,
+    sessionId: payload.sid,
+    userId: payload.sub,
+  });
+
   return {
-    tokens: await issueTokens(user),
+    tokens: (
+      await issueAuthSessionTokens({
+        existingSessionId: payload.sid,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+        userId: user.id,
+        userRole: mapUserRole(user.role),
+      })
+    ).tokens,
     user: toPublicUser(user),
   };
 }
 
 export async function getCurrentUser(userId: string): Promise<PublicUser> {
   const user = await prisma.user.findUnique({
+    include: {
+      officeAssignments: {
+        select: {
+          officeId: true,
+        },
+      },
+    },
     where: {
       id: userId,
     },
@@ -220,6 +312,13 @@ export async function listUsers(input: ListUsersInput): Promise<{
   const [total, users] = await Promise.all([
     prisma.user.count({ where }),
     prisma.user.findMany({
+      include: {
+        officeAssignments: {
+          select: {
+            officeId: true,
+          },
+        },
+      },
       orderBy: [{ role: "asc" }, { name: "asc" }],
       skip: input.skip,
       take: input.limit,

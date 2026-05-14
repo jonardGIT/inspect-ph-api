@@ -5,6 +5,7 @@ import { asyncHandler } from "../lib/async-handler.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { requireJurisdiction } from "../middleware/jurisdiction.js";
 import { createLgu, listLgus } from "../services/lgus.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -13,6 +14,7 @@ const router = Router();
 router.get(
   "/",
   authenticate,
+  requireJurisdiction(),
   [
     query("page")
       .optional()
@@ -26,10 +28,19 @@ router.get(
     validateRequestMiddleware,
   ],
   asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      return;
+    }
+
     const pagination = parsePaginationQuery(
       request.query as Record<string, unknown>,
     );
     const result = await listLgus({
+      jurisdictionScope: request.jurisdictionScope ?? {
+        accessScope: request.auth.role === "admin" ? "global" : "assigned",
+        lguIds: [],
+        officeIds: [],
+      },
       limit: pagination.limit,
       page: pagination.page,
       search:

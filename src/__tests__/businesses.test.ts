@@ -3,6 +3,7 @@ import request from "supertest";
 const mockBusinessCount = jest.fn();
 const mockBusinessCreate = jest.fn();
 const mockBusinessFindMany = jest.fn();
+const mockUserFindUnique = jest.fn();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
@@ -10,6 +11,9 @@ jest.mock("../lib/prisma.js", () => ({
       count: mockBusinessCount,
       create: mockBusinessCreate,
       findMany: mockBusinessFindMany,
+    },
+    user: {
+      findUnique: mockUserFindUnique,
     },
   },
 }));
@@ -20,6 +24,17 @@ import { signAccessToken } from "../lib/jwt.js";
 describe("Business routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserFindUnique.mockResolvedValue({
+      lguId: "11111111-1111-4111-8111-111111111111",
+      officeAssignments: [
+        {
+          office: {
+            id: "22222222-2222-4222-8222-222222222222",
+            lguId: "11111111-1111-4111-8111-111111111111",
+          },
+        },
+      ],
+    });
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
     process.env.JWT_REFRESH_EXPIRES_IN = "7d";
@@ -69,6 +84,39 @@ describe("Business routes", () => {
       taxIdentificationNumber: "123-456-789",
       tradeName: "North Star",
       updatedAt: createdAt.toISOString(),
+    });
+    expect(mockBusinessCount).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          {
+            inspections: {
+              some: {
+                officeId: {
+                  in: ["22222222-2222-4222-8222-222222222222"],
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+    expect(mockBusinessFindMany).toHaveBeenCalledWith({
+      orderBy: { createdAt: "desc" },
+      skip: 0,
+      take: 10,
+      where: {
+        AND: [
+          {
+            inspections: {
+              some: {
+                officeId: {
+                  in: ["22222222-2222-4222-8222-222222222222"],
+                },
+              },
+            },
+          },
+        ],
+      },
     });
   });
 

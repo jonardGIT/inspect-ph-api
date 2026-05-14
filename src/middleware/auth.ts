@@ -2,6 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 
 import { getAuthProvider } from "../lib/auth-provider.js";
 import { AppError } from "../lib/errors.js";
+import { assertAuthSessionActive } from "../services/auth-sessions.js";
 import type { UserRole } from "../types/auth.js";
 
 function extractBearerToken(request: Request): string {
@@ -28,6 +29,14 @@ export const authenticate: RequestHandler = async (
   try {
     const token = extractBearerToken(request);
     request.auth = await getAuthProvider().verifyAccessToken(token);
+
+    if (request.auth.sid) {
+      await assertAuthSessionActive({
+        sessionId: request.auth.sid,
+        userId: request.auth.sub,
+      });
+    }
+
     next();
   } catch (error) {
     next(error);

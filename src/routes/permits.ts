@@ -6,6 +6,7 @@ import { AppError } from "../lib/errors.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { requireJurisdiction } from "../middleware/jurisdiction.js";
 import { createPermit, listPermits } from "../services/permits.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -35,6 +36,7 @@ function parsePermitStatus(value: unknown) {
 router.get(
   "/",
   authenticate,
+  requireJurisdiction(),
   [
     query("page")
       .optional()
@@ -52,6 +54,10 @@ router.get(
     validateRequestMiddleware,
   ],
   asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      return;
+    }
+
     const pagination = parsePaginationQuery(
       request.query as Record<string, unknown>,
     );
@@ -60,6 +66,11 @@ router.get(
         typeof request.query.businessId === "string"
           ? request.query.businessId
           : undefined,
+      jurisdictionScope: request.jurisdictionScope ?? {
+        accessScope: request.auth.role === "admin" ? "global" : "assigned",
+        lguIds: [],
+        officeIds: [],
+      },
       limit: pagination.limit,
       page: pagination.page,
       skip: pagination.skip,

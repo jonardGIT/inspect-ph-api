@@ -12,6 +12,7 @@ import type {
 import { AppError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { getAttachmentStorageProvider } from "../lib/storage-provider.js";
+import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { recordAuditLog } from "./audit-logs.js";
 import { enqueueNotificationOutbox } from "./notifications-outbox.js";
 
@@ -20,7 +21,10 @@ export interface ListInspectionsInput {
   actorUserId: string;
   businessId?: string;
   inspectorId?: string;
+  jurisdictionScope: JurisdictionScope;
   limit: number;
+  lguId?: string;
+  officeId?: string;
   page: number;
   permitRecordId?: string;
   skip: number;
@@ -36,6 +40,7 @@ export interface CreateInspectionInput {
   latitude?: number;
   longitude?: number;
   notes?: string;
+  officeId: string;
   permitRecordId: string;
   scheduledAt: string;
 }
@@ -73,6 +78,12 @@ export interface PublicInspection {
     longitude: number;
   };
   notes?: string;
+  office: {
+    code: string;
+    id: string;
+    lguId: string;
+    name: string;
+  };
   permit: {
     id: string;
     permitNumber: string;
@@ -138,6 +149,27 @@ export interface PublicInspectionSummary {
   total: number;
 }
 
+export interface PublicInspectionMapPoint {
+  business: {
+    businessName: string;
+    id: string;
+  };
+  id: string;
+  location: {
+    accuracyMeters?: number;
+    latitude: number;
+    longitude: number;
+  };
+  office: {
+    code: string;
+    id: string;
+    lguId: string;
+    name: string;
+  };
+  scheduledAt: string;
+  status: Lowercase<`${Inspection["status"]}`>;
+}
+
 export interface PublicAttachment {
   capturedAt?: string;
   createdAt: string;
@@ -201,6 +233,14 @@ type InspectionWithRelations = Prisma.InspectionGetPayload<{
         id: true;
       };
     };
+    office: {
+      select: {
+        code: true;
+        id: true;
+        lguId: true;
+        name: true;
+      };
+    };
     permitRecord: {
       select: {
         id: true;
@@ -259,6 +299,12 @@ function toPublicInspection(record: InspectionWithRelations): PublicInspection {
           }
         : undefined,
     notes: record.notes ?? undefined,
+    office: {
+      code: record.office.code,
+      id: record.office.id,
+      lguId: record.office.lguId,
+      name: record.office.name,
+    },
     permit: {
       id: record.permitRecord.id,
       permitNumber: record.permitRecord.permitNumber,
@@ -369,32 +415,131 @@ function buildLocationData(input: {
   };
 }
 
+function buildScopedInspectionClauses(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  jurisdictionScope: JurisdictionScope;
+  lguId?: string;
+}) {
+  const clauses: Prisma.InspectionWhereInput[] = [];
+
+  if (input.actorRole === "inspector") {
+    clauses.push({ inspectorId: input.actorUserId });
+  }
+
+  if (input.jurisdictionScope.accessScope === "assigned") {
+    clauses.push({
+      officeId: {
+        in: input.jurisdictionScope.officeIds,
+      },
+    });
+  }
+
+  if (input.lguId) {
+    clauses.push({
+      office: {
+        lguId: input.lguId,
+      },
+    });
+  }
+
+  return clauses;
+}
+
+function buildScheduledWindowClause(input: { from?: string; to?: string }) {
+  if (!input.from && !input.to) {
+    return null;
+  }
+
+  return {
+    scheduledAt: {
+      ...(input.from ? { gte: new Date(input.from) } : {}),
+      ...(input.to ? { lte: new Date(input.to) } : {}),
+    },
+  } satisfies Prisma.InspectionWhereInput;
+}
+
 function buildInspectionWhere(
   input: ListInspectionsInput,
 ): Prisma.InspectionWhereInput {
-  const where: Prisma.InspectionWhereInput = {};
-
-  if (input.actorRole === "inspector") {
-    where.inspectorId = input.actorUserId;
-  }
+  const clauses = buildScopedInspectionClauses({
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    jurisdictionScope: input.jurisdictionScope,
+    lguId: input.lguId,
+  });
 
   if (input.businessId) {
-    where.businessId = input.businessId;
+    clauses.push({ businessId: input.businessId });
   }
 
   if (input.permitRecordId) {
-    where.permitRecordId = input.permitRecordId;
+    clauses.push({ permitRecordId: input.permitRecordId });
   }
 
   if (input.inspectorId && input.actorRole === "admin") {
-    where.inspectorId = input.inspectorId;
+    clauses.push({ inspectorId: input.inspectorId });
+  }
+
+  if (input.officeId) {
+    clauses.push({ officeId: input.officeId });
   }
 
   if (input.status) {
-    where.status = input.status;
+    clauses.push({ status: input.status });
   }
 
-  return where;
+  return clauses.length === 0 ? {} : { AND: clauses };
+}
+
+function toPublicInspectionMapPoint(
+  record: Prisma.InspectionGetPayload<{
+    select: {
+      business: {
+        select: {
+          businessName: true;
+          id: true;
+        };
+      };
+      id: true;
+      locationAccuracyMeters: true;
+      locationLatitude: true;
+      locationLongitude: true;
+      office: {
+        select: {
+          code: true;
+          id: true;
+          lguId: true;
+          name: true;
+        };
+      };
+      scheduledAt: true;
+      status: true;
+    };
+  }>,
+): PublicInspectionMapPoint {
+  return {
+    business: {
+      businessName: record.business.businessName,
+      id: record.business.id,
+    },
+    id: record.id,
+    location: {
+      ...(record.locationAccuracyMeters != null
+        ? { accuracyMeters: record.locationAccuracyMeters }
+        : {}),
+      latitude: record.locationLatitude!,
+      longitude: record.locationLongitude!,
+    },
+    office: {
+      code: record.office.code,
+      id: record.office.id,
+      lguId: record.office.lguId,
+      name: record.office.name,
+    },
+    scheduledAt: record.scheduledAt.toISOString(),
+    status: record.status.toLowerCase() as Lowercase<`${Inspection["status"]}`>,
+  };
 }
 
 async function ensurePermitMatchesBusiness(
@@ -422,6 +567,17 @@ async function ensurePermitMatchesBusiness(
   }
 }
 
+async function ensureOfficeExists(officeId: string): Promise<void> {
+  const office = await prisma.office.findUnique({
+    where: { id: officeId },
+    select: { id: true },
+  });
+
+  if (!office) {
+    throw new AppError(404, "OFFICE_NOT_FOUND", "Office not found");
+  }
+}
+
 async function ensureInspectionAssignee(inspectorId: string): Promise<void> {
   const inspector = await prisma.user.findFirst({
     where: {
@@ -433,6 +589,27 @@ async function ensureInspectionAssignee(inspectorId: string): Promise<void> {
 
   if (!inspector) {
     throw new AppError(404, "INSPECTOR_NOT_FOUND", "Inspector not found");
+  }
+}
+
+async function ensureInspectorCanOperateOffice(
+  inspectorId: string,
+  officeId: string,
+): Promise<void> {
+  const assignment = await prisma.userOfficeAssignment.findFirst({
+    where: {
+      officeId,
+      userId: inspectorId,
+    },
+    select: { id: true },
+  });
+
+  if (!assignment) {
+    throw new AppError(
+      400,
+      "INSPECTOR_OFFICE_SCOPE_MISMATCH",
+      "Inspector is not assigned to the selected office",
+    );
   }
 }
 
@@ -456,13 +633,32 @@ async function getScopedInspection(
   return prisma.inspection.findFirst({
     where: {
       id,
-      ...(actorRole === "inspector" ? { inspectorId: actorUserId } : {}),
+      ...(actorRole === "inspector"
+        ? {
+            inspectorId: actorUserId,
+            office: {
+              userAssignments: {
+                some: {
+                  userId: actorUserId,
+                },
+              },
+            },
+          }
+        : {}),
     },
     include: {
       business: {
         select: {
           businessName: true,
           id: true,
+        },
+      },
+      office: {
+        select: {
+          code: true,
+          id: true,
+          lguId: true,
+          name: true,
         },
       },
       permitRecord: {
@@ -584,6 +780,14 @@ export async function listInspections(input: ListInspectionsInput): Promise<{
             id: true,
           },
         },
+        office: {
+          select: {
+            code: true,
+            id: true,
+            lguId: true,
+            name: true,
+          },
+        },
         permitRecord: {
           select: {
             id: true,
@@ -639,15 +843,18 @@ export async function createInspection(
   }
 
   await ensurePermitMatchesBusiness(input.businessId, input.permitRecordId);
+  await ensureOfficeExists(input.officeId);
 
   if (input.inspectorId) {
     await ensureInspectionAssignee(input.inspectorId);
+    await ensureInspectorCanOperateOffice(input.inspectorId, input.officeId);
   }
 
   const inspection = await prisma.inspection.create({
     data: {
       businessId: input.businessId,
       inspectorId: input.inspectorId ?? null,
+      officeId: input.officeId,
       ...buildLocationData(input),
       notes: input.notes?.trim() || null,
       permitRecordId: input.permitRecordId,
@@ -658,6 +865,14 @@ export async function createInspection(
         select: {
           businessName: true,
           id: true,
+        },
+      },
+      office: {
+        select: {
+          code: true,
+          id: true,
+          lguId: true,
+          name: true,
         },
       },
       permitRecord: {
@@ -700,7 +915,7 @@ export async function assignInspection(
 ): Promise<PublicInspection> {
   const inspection = await prisma.inspection.findUnique({
     where: { id: input.id },
-    select: { id: true },
+    select: { id: true, officeId: true },
   });
 
   if (!inspection) {
@@ -708,6 +923,7 @@ export async function assignInspection(
   }
 
   await ensureInspectionAssignee(input.inspectorId);
+  await ensureInspectorCanOperateOffice(input.inspectorId, inspection.officeId);
 
   const updatedInspection = await prisma.inspection.update({
     where: { id: input.id },
@@ -719,6 +935,14 @@ export async function assignInspection(
         select: {
           businessName: true,
           id: true,
+        },
+      },
+      office: {
+        select: {
+          code: true,
+          id: true,
+          lguId: true,
+          name: true,
         },
       },
       permitRecord: {
@@ -785,6 +1009,14 @@ export async function updateInspectionStatus(
         select: {
           businessName: true,
           id: true,
+        },
+      },
+      office: {
+        select: {
+          code: true,
+          id: true,
+          lguId: true,
+          name: true,
         },
       },
       permitRecord: {
@@ -1051,21 +1283,26 @@ export async function getInspectionSummary(input: {
   actorRole: "admin" | "inspector";
   actorUserId: string;
   from?: string;
+  jurisdictionScope: JurisdictionScope;
+  lguId?: string;
   to?: string;
 }): Promise<PublicInspectionSummary> {
-  const baseWhere: Prisma.InspectionWhereInput = {
-    ...(input.actorRole === "inspector"
-      ? { inspectorId: input.actorUserId }
-      : {}),
-    ...(input.from || input.to
-      ? {
-          scheduledAt: {
-            ...(input.from ? { gte: new Date(input.from) } : {}),
-            ...(input.to ? { lte: new Date(input.to) } : {}),
-          },
-        }
-      : {}),
-  };
+  const clauses = buildScopedInspectionClauses({
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    jurisdictionScope: input.jurisdictionScope,
+    lguId: input.lguId,
+  });
+  const scheduledWindowClause = buildScheduledWindowClause({
+    from: input.from,
+    to: input.to,
+  });
+
+  if (scheduledWindowClause) {
+    clauses.push(scheduledWindowClause);
+  }
+
+  const baseWhere = clauses.length === 0 ? {} : { AND: clauses };
 
   const [scheduled, inProgress, completed, overdue, canceled] =
     await Promise.all([
@@ -1086,6 +1323,75 @@ export async function getInspectionSummary(input: {
     scheduled,
     total: scheduled + inProgress + completed + overdue + canceled,
   };
+}
+
+export async function listInspectionMapPoints(input: {
+  actorRole: "admin" | "inspector";
+  actorUserId: string;
+  from?: string;
+  jurisdictionScope: JurisdictionScope;
+  lguId?: string;
+  officeId?: string;
+  status?: Inspection["status"];
+  to?: string;
+}): Promise<PublicInspectionMapPoint[]> {
+  const clauses = buildScopedInspectionClauses({
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    jurisdictionScope: input.jurisdictionScope,
+    lguId: input.lguId,
+  });
+  const scheduledWindowClause = buildScheduledWindowClause({
+    from: input.from,
+    to: input.to,
+  });
+
+  if (scheduledWindowClause) {
+    clauses.push(scheduledWindowClause);
+  }
+
+  if (input.officeId) {
+    clauses.push({ officeId: input.officeId });
+  }
+
+  if (input.status) {
+    clauses.push({ status: input.status });
+  }
+
+  clauses.push({
+    locationLatitude: { not: null },
+    locationLongitude: { not: null },
+  });
+
+  const points = await prisma.inspection.findMany({
+    orderBy: { scheduledAt: "asc" },
+    select: {
+      business: {
+        select: {
+          businessName: true,
+          id: true,
+        },
+      },
+      id: true,
+      locationAccuracyMeters: true,
+      locationLatitude: true,
+      locationLongitude: true,
+      office: {
+        select: {
+          code: true,
+          id: true,
+          lguId: true,
+          name: true,
+        },
+      },
+      scheduledAt: true,
+      status: true,
+    },
+    take: 200,
+    where: { AND: clauses },
+  });
+
+  return points.map(toPublicInspectionMapPoint);
 }
 
 export async function listInspectionHistory(input: {

@@ -4,6 +4,7 @@ const mockBusinessFindUnique = jest.fn();
 const mockPermitCount = jest.fn();
 const mockPermitCreate = jest.fn();
 const mockPermitFindMany = jest.fn();
+const mockUserFindUnique = jest.fn();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
@@ -15,6 +16,9 @@ jest.mock("../lib/prisma.js", () => ({
       create: mockPermitCreate,
       findMany: mockPermitFindMany,
     },
+    user: {
+      findUnique: mockUserFindUnique,
+    },
   },
 }));
 
@@ -24,6 +28,17 @@ import { signAccessToken } from "../lib/jwt.js";
 describe("Permit routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserFindUnique.mockResolvedValue({
+      lguId: "11111111-1111-4111-8111-111111111111",
+      officeAssignments: [
+        {
+          office: {
+            id: "22222222-2222-4222-8222-222222222222",
+            lguId: "11111111-1111-4111-8111-111111111111",
+          },
+        },
+      ],
+    });
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
     process.env.JWT_REFRESH_EXPIRES_IN = "7d";
@@ -74,6 +89,39 @@ describe("Permit routes", () => {
       permitNumber: "BPLO-2026-0001",
       status: "pending_inspection",
       updatedAt: createdAt.toISOString(),
+    });
+    expect(mockPermitCount).toHaveBeenCalledWith({
+      where: {
+        inspections: {
+          some: {
+            officeId: {
+              in: ["22222222-2222-4222-8222-222222222222"],
+            },
+          },
+        },
+      },
+    });
+    expect(mockPermitFindMany).toHaveBeenCalledWith({
+      include: {
+        business: {
+          select: {
+            businessName: true,
+            id: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: 0,
+      take: 5,
+      where: {
+        inspections: {
+          some: {
+            officeId: {
+              in: ["22222222-2222-4222-8222-222222222222"],
+            },
+          },
+        },
+      },
     });
   });
 

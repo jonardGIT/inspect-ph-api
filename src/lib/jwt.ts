@@ -7,6 +7,7 @@ export type AuthRole = UserRole;
 
 export interface AuthTokenPayload {
   role: AuthRole;
+  sid?: string;
   sub: string;
 }
 
@@ -80,7 +81,7 @@ function verifyToken(token: string, expectedType: TokenType): AuthTokenPayload {
       throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
     }
 
-    const { role, sub, type } = decoded as Partial<SignedTokenPayload>;
+    const { role, sid, sub, type } = decoded as Partial<SignedTokenPayload>;
 
     if (
       (role !== "admin" && role !== "inspector") ||
@@ -90,7 +91,7 @@ function verifyToken(token: string, expectedType: TokenType): AuthTokenPayload {
       throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
     }
 
-    return { role, sub };
+    return { role, sid: typeof sid === "string" ? sid : undefined, sub };
   } catch (error) {
     if (error instanceof AppError) {
       throw error;
@@ -118,4 +119,8 @@ export function verifyRefreshToken(token: string): AuthTokenPayload {
 
 export function getAccessTokenExpiresInSeconds(): number {
   return parseDurationToSeconds(getJwtExpiresIn());
+}
+
+export function getRefreshTokenExpiresInSeconds(): number {
+  return parseDurationToSeconds(getJwtRefreshExpiresIn());
 }
