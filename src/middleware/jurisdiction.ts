@@ -46,7 +46,10 @@ export async function resolveJurisdictionScope(input: {
   );
 
   return {
-    accessScope: input.role === "admin" ? "global" : "assigned",
+    accessScope:
+      input.role === "admin" || input.role === "lgu_admin"
+        ? "global"
+        : "assigned",
     lguIds,
     officeIds,
   };

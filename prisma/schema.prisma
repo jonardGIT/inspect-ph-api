@@ -13,6 +13,7 @@ model User {
   name                      String
   passwordHash              String
   role                      UserRole               @default(INSPECTOR)
+  expoPushToken             String?
   createdAt                 DateTime               @default(now())
   updatedAt                 DateTime               @updatedAt
   lguId                     String?
@@ -28,19 +29,21 @@ model User {
 }
 
 model Lgu {
-  id        String   @id @default(uuid())
-  code      String   @unique
-  name      String
-  region    String?
-  province  String?
-  city      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  offices   Office[]
-  users     User[]
+  id         String    @id @default(uuid())
+  code       String    @unique
+  name       String
+  region     String?
+  province   String?
+  city       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+  offices    Office[]
+  users      User[]
 
   @@index([name])
   @@index([region, province, city])
+  @@index([archivedAt])
 }
 
 model Office {
@@ -51,6 +54,7 @@ model Office {
   description       String?
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
+  archivedAt        DateTime?
   inspections       Inspection[]
   lgu               Lgu                    @relation(fields: [lguId], references: [id], onDelete: Cascade)
   moduleAssignments OfficeModule[]
@@ -59,6 +63,7 @@ model Office {
   @@unique([lguId, code])
   @@index([lguId])
   @@index([name])
+  @@index([archivedAt])
 }
 
 model UserOfficeAssignment {
@@ -83,10 +88,12 @@ model Module {
   isActive          Boolean        @default(true)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
+  archivedAt        DateTime?
   officeAssignments OfficeModule[]
 
   @@index([name])
   @@index([isActive])
+  @@index([archivedAt])
 }
 
 model OfficeModule {
@@ -174,11 +181,13 @@ model BusinessEstablishment {
   contactNumber           String?
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
+  archivedAt              DateTime?
   inspections             Inspection[]
   permitRecords           PermitRecord[]
 
   @@index([businessName])
   @@index([barangay, city])
+  @@index([archivedAt])
 }
 
 model PermitRecord {
@@ -192,6 +201,7 @@ model PermitRecord {
   createdById     String?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
+  archivedAt      DateTime?
   inspections     Inspection[]
   payments        PaymentRecord[]
   business        BusinessEstablishment @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -201,6 +211,7 @@ model PermitRecord {
   @@index([createdById])
   @@index([status])
   @@index([expirationDate])
+  @@index([archivedAt])
 }
 
 model Inspection {
@@ -379,6 +390,9 @@ model Attachment {
 enum UserRole {
   ADMIN
   INSPECTOR
+  LGU_ADMIN
+  OFFICE_SUPERVISOR
+  OFFICE_CLERK
 }
 
 enum PermitStatus {

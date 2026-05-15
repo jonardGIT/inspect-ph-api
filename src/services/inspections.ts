@@ -1,3 +1,4 @@
+import type { AuthRole } from "../lib/auth-provider.js";
 import type {
   Attachment,
   ChecklistResultStatus,
@@ -10,6 +11,7 @@ import type {
 } from "@prisma/client";
 
 import { AppError } from "../lib/errors.js";
+import { inspectionEventBus } from "../lib/inspection-event-bus.js";
 import { prisma } from "../lib/prisma.js";
 import { getAttachmentStorageProvider } from "../lib/storage-provider.js";
 import type { JurisdictionScope } from "../middleware/jurisdiction.js";
@@ -17,7 +19,7 @@ import { recordAuditLog } from "./audit-logs.js";
 import { enqueueNotificationOutbox } from "./notifications-outbox.js";
 
 export interface ListInspectionsInput {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   businessId?: string;
   inspectorId?: string;
@@ -32,7 +34,7 @@ export interface ListInspectionsInput {
 }
 
 export interface CreateInspectionInput {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   businessId: string;
   accuracyMeters?: number;
@@ -46,7 +48,7 @@ export interface CreateInspectionInput {
 }
 
 export interface AssignInspectionInput {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   id: string;
   inspectorId: string;
@@ -54,7 +56,7 @@ export interface AssignInspectionInput {
 
 export interface UpdateInspectionStatusInput {
   accuracyMeters?: number;
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   id: string;
   latitude?: number;
@@ -352,7 +354,9 @@ function toPublicChecklistResult(
   };
 }
 
-export function toPublicFinding(record: FindingRecordWithRelations): PublicFinding {
+export function toPublicFinding(
+  record: FindingRecordWithRelations,
+): PublicFinding {
   return {
     checklistResultId: record.checklistResultId ?? undefined,
     correctiveAction: record.correctiveAction ?? undefined,
@@ -416,7 +420,7 @@ function buildLocationData(input: {
 }
 
 function buildScopedInspectionClauses(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   jurisdictionScope: JurisdictionScope;
   lguId?: string;
@@ -627,7 +631,7 @@ async function listAdminNotificationRecipientIds(excludeUserId?: string) {
 
 async function getScopedInspection(
   id: string,
-  actorRole: "admin" | "inspector",
+  actorRole: AuthRole,
   actorUserId: string,
 ): Promise<InspectionWithRelations | null> {
   return prisma.inspection.findFirst({
@@ -673,7 +677,7 @@ async function getScopedInspection(
 
 async function ensureAccessibleInspection(
   id: string,
-  actorRole: "admin" | "inspector",
+  actorRole: AuthRole,
   actorUserId: string,
 ): Promise<InspectionWithRelations> {
   const inspection = await getScopedInspection(id, actorRole, actorUserId);
@@ -814,7 +818,7 @@ export async function listInspections(input: ListInspectionsInput): Promise<{
 
 export async function getInspectionById(
   id: string,
-  actorRole: "admin" | "inspector",
+  actorRole: AuthRole,
   actorUserId: string,
 ): Promise<PublicInspection> {
   const inspection = await ensureAccessibleInspection(
@@ -973,6 +977,19 @@ export async function assignInspection(
     title: `Inspection assigned: ${updatedInspection.business.businessName}`,
   });
 
+  inspectionEventBus.publish({
+    entityId: updatedInspection.id,
+    entityType: "inspection",
+    eventType: "inspection.assigned",
+    lguId: updatedInspection.office.lguId ?? undefined,
+    officeId: updatedInspection.office.id,
+    payload: {
+      businessName: updatedInspection.business.businessName,
+      inspectorId: input.inspectorId,
+      status: updatedInspection.status.toLowerCase(),
+    },
+  });
+
   return toPublicInspection(updatedInspection);
 }
 
@@ -1060,6 +1077,18 @@ export async function updateInspectionStatus(
     );
   }
 
+  inspectionEventBus.publish({
+    entityId: updatedInspection.id,
+    entityType: "inspection",
+    eventType: "inspection.status_updated",
+    lguId: updatedInspection.office.lguId ?? undefined,
+    officeId: updatedInspection.office.id,
+    payload: {
+      businessName: updatedInspection.business.businessName,
+      status: updatedInspection.status.toLowerCase(),
+    },
+  });
+
   return toPublicInspection(updatedInspection);
 }
 
@@ -1081,7 +1110,7 @@ export async function listChecklistTemplates(
 
 export async function listInspectionChecklistResults(
   inspectionId: string,
-  actorRole: "admin" | "inspector",
+  actorRole: AuthRole,
   actorUserId: string,
 ): Promise<PublicChecklistResult[]> {
   await ensureAccessibleInspection(inspectionId, actorRole, actorUserId);
@@ -1105,7 +1134,7 @@ export async function listInspectionChecklistResults(
 }
 
 export async function upsertInspectionChecklistResult(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   inspectionId: string;
   remarks?: string;
@@ -1162,7 +1191,7 @@ export async function upsertInspectionChecklistResult(input: {
 }
 
 export async function listFindings(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   inspectionId: string;
   severity?: FindingSeverity;
@@ -1186,7 +1215,7 @@ export async function listFindings(input: {
 
 export async function createFinding(input: {
   accuracyMeters?: number;
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   checklistResultId?: string;
   correctiveAction?: string;
@@ -1238,7 +1267,7 @@ export async function createFinding(input: {
 }
 
 export async function resolveFinding(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   findingId: string;
   inspectionId: string;
@@ -1280,7 +1309,7 @@ export async function resolveFinding(input: {
 }
 
 export async function getInspectionSummary(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   from?: string;
   jurisdictionScope: JurisdictionScope;
@@ -1330,8 +1359,101 @@ export async function getInspectionSummary(input: {
   };
 }
 
+export interface InspectionsByOfficeRow {
+  canceled: number;
+  completed: number;
+  inProgress: number;
+  officeId: string;
+  officeName: string;
+  overdue: number;
+  scheduled: number;
+  total: number;
+}
+
+export async function getInspectionsByOffice(input: {
+  actorRole: AuthRole;
+  actorUserId: string;
+  from?: string;
+  jurisdictionScope: JurisdictionScope;
+  lguId?: string;
+  to?: string;
+}): Promise<InspectionsByOfficeRow[]> {
+  const clauses = buildScopedInspectionClauses({
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    jurisdictionScope: input.jurisdictionScope,
+    lguId: input.lguId,
+  });
+  const scheduledWindowClause = buildScheduledWindowClause({
+    from: input.from,
+    to: input.to,
+  });
+
+  if (scheduledWindowClause) {
+    clauses.push(scheduledWindowClause);
+  }
+
+  const baseWhere = clauses.length === 0 ? {} : { AND: clauses };
+
+  const grouped = await prisma.inspection.groupBy({
+    by: ["officeId", "status"],
+    where: baseWhere,
+    _count: { _all: true },
+  });
+
+  if (grouped.length === 0) {
+    return [];
+  }
+
+  const officeIds = [...new Set(grouped.map((row) => row.officeId))];
+  const offices = await prisma.office.findMany({
+    where: { id: { in: officeIds } },
+    select: { id: true, name: true },
+  });
+
+  const officeNames = new Map(offices.map((o) => [o.id, o.name]));
+
+  const aggregated = new Map<string, InspectionsByOfficeRow>();
+
+  for (const row of grouped) {
+    if (!aggregated.has(row.officeId)) {
+      aggregated.set(row.officeId, {
+        canceled: 0,
+        completed: 0,
+        inProgress: 0,
+        officeId: row.officeId,
+        officeName: officeNames.get(row.officeId) ?? row.officeId,
+        overdue: 0,
+        scheduled: 0,
+        total: 0,
+      });
+    }
+
+    const entry = aggregated.get(row.officeId)!;
+    const count = row._count._all;
+
+    entry.total += count;
+
+    if (row.status === "SCHEDULED") {
+      entry.scheduled += count;
+    } else if (row.status === "IN_PROGRESS") {
+      entry.inProgress += count;
+    } else if (row.status === "COMPLETED") {
+      entry.completed += count;
+    } else if (row.status === "OVERDUE") {
+      entry.overdue += count;
+    } else if (row.status === "CANCELED") {
+      entry.canceled += count;
+    }
+  }
+
+  return [...aggregated.values()].sort((a, b) =>
+    a.officeName.localeCompare(b.officeName),
+  );
+}
+
 export async function listInspectionMapPoints(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   from?: string;
   jurisdictionScope: JurisdictionScope;
@@ -1400,7 +1522,7 @@ export async function listInspectionMapPoints(input: {
 }
 
 export async function listInspectionHistory(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   inspectionId: string;
 }): Promise<PublicInspectionHistoryEvent[]> {
@@ -1504,7 +1626,7 @@ export async function listInspectionHistory(input: {
 }
 
 export async function listAttachments(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   findingId?: string;
   inspectionId: string;
@@ -1532,7 +1654,7 @@ export async function listAttachments(input: {
 
 export async function createAttachment(input: {
   accuracyMeters?: number;
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   capturedAt?: string;
   fileName: string;
@@ -1581,7 +1703,7 @@ export async function createAttachment(input: {
 }
 
 export async function createAttachmentUploadIntent(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   fileName: string;
   findingId?: string;
@@ -1607,7 +1729,7 @@ export async function createAttachmentUploadIntent(input: {
 }
 
 export async function createAttachmentDownloadIntent(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   attachmentId: string;
   inspectionId: string;

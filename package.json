@@ -12,9 +12,12 @@
     "seed:dev-admin": "tsx src/scripts/seed-dev-admin.ts",
     "seed:dev-buildsure": "tsx src/scripts/seed-dev-buildsure.ts",
     "seed:dev-fireguard": "tsx src/scripts/seed-dev-fireguard.ts",
+    "seed:dev-marketguard": "tsx src/scripts/seed-dev-marketguard.ts",
     "seed:dev-sanitacheck": "tsx src/scripts/seed-dev-sanitacheck.ts",
     "seed:dev-inspector": "tsx src/scripts/seed-dev-inspector.ts",
     "seed:dev-inspections": "tsx src/scripts/seed-dev-inspections.ts",
+    "sweep:status": "tsx src/scripts/run-status-sweep.ts",
+    "deliver:notifications": "tsx src/scripts/run-notification-delivery.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },

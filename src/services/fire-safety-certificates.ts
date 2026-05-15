@@ -1,3 +1,4 @@
+import type { AuthRole } from "../lib/auth-provider.js";
 import type {
   FireSafetyCertificateStatus,
   InspectionStatus,
@@ -65,18 +66,16 @@ export interface PublicFireSafetyCertificateLookup {
 }
 
 export interface CreateFireSafetyCertificateInput {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
-  certificateNumber: string;
   expiresAt: string;
   inspectionId: string;
   issuedAt: string;
   remarks?: string;
-  status?: FireSafetyCertificateStatus;
 }
 
 export interface ListFireSafetyCertificatesInput {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   jurisdictionScope: JurisdictionScope;
   limit: number;
@@ -158,7 +157,7 @@ type PublicLookupCertificateWithRelations =
   }>;
 
 function buildScopedInspectionWhere(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   jurisdictionScope: JurisdictionScope;
   officeId?: string;
@@ -275,43 +274,6 @@ function toPublicFireSafetyCertificateLookup(
   };
 }
 
-async function ensureFireGuardInspection(inspectionId: string) {
-  const inspection = await prisma.inspection.findUnique({
-    where: { id: inspectionId },
-    include: {
-      office: {
-        select: {
-          moduleAssignments: {
-            select: {
-              module: {
-                select: {
-                  code: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  if (!inspection) {
-    throw new AppError(404, "INSPECTION_NOT_FOUND", "Inspection not found");
-  }
-
-  const isFireGuardInspection = inspection.office.moduleAssignments.some(
-    (assignment) => assignment.module.code === FIREGUARD_MODULE_CODE,
-  );
-
-  if (!isFireGuardInspection) {
-    throw new AppError(
-      400,
-      "FIRE_SAFETY_CERTIFICATE_UNSUPPORTED_OFFICE",
-      "Fire safety certificates are only available for FireGuard offices",
-    );
-  }
-}
-
 export async function listFireSafetyCertificates(
   input: ListFireSafetyCertificatesInput,
 ): Promise<{
@@ -379,7 +341,7 @@ export async function listFireSafetyCertificates(
 }
 
 export async function getFireSafetyCertificateByInspection(input: {
-  actorRole: "admin" | "inspector";
+  actorRole: AuthRole;
   actorUserId: string;
   inspectionId: string;
   jurisdictionScope: JurisdictionScope;
@@ -495,32 +457,92 @@ export async function getPublicFireSafetyCertificateByNumber(input: {
   return toPublicFireSafetyCertificateLookup(record);
 }
 
+async function generateCertificateNumber(officeCode: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `FSIC-${year}-${officeCode.toUpperCase()}`;
+  const count = await prisma.fireSafetyCertificate.count({
+    where: { certificateNumber: { startsWith: prefix } },
+  });
+  const seq = String(count + 1).padStart(4, "0");
+
+  return `${prefix}-${seq}`;
+}
+
 export async function createFireSafetyCertificate(
   input: CreateFireSafetyCertificateInput,
 ): Promise<PublicFireSafetyCertificate> {
-  await ensureFireGuardInspection(input.inspectionId);
-
-  const existingCertificate = await prisma.fireSafetyCertificate.findUnique({
-    where: { inspectionId: input.inspectionId },
-    select: { id: true },
+  const inspection = await prisma.inspection.findUnique({
+    where: { id: input.inspectionId },
+    select: {
+      status: true,
+      permitRecordId: true,
+      office: {
+        select: {
+          code: true,
+          moduleAssignments: {
+            select: { module: { select: { code: true } } },
+          },
+        },
+      },
+    },
   });
 
-  if (existingCertificate) {
+  if (!inspection) {
+    throw new AppError(404, "INSPECTION_NOT_FOUND", "Inspection not found");
+  }
+
+  const isFireGuard = inspection.office.moduleAssignments.some(
+    (a) => a.module.code === FIREGUARD_MODULE_CODE,
+  );
+
+  if (!isFireGuard) {
     throw new AppError(
-      409,
-      "FIRE_SAFETY_CERTIFICATE_EXISTS",
-      "A fire safety certificate already exists for this inspection",
+      400,
+      "FIRE_SAFETY_CERTIFICATE_UNSUPPORTED_OFFICE",
+      "Fire safety certificates are only available for FireGuard offices",
     );
   }
 
+  if (inspection.status !== "COMPLETED") {
+    throw new AppError(
+      400,
+      "INSPECTION_NOT_COMPLETED",
+      "The inspection must be completed before issuing a certificate",
+    );
+  }
+
+  const issuedAt = new Date(input.issuedAt);
+  const expiresAt = new Date(input.expiresAt);
+
+  const overlapConflict = await prisma.fireSafetyCertificate.findFirst({
+    where: {
+      status: { in: ["ISSUED"] },
+      inspection: { permitRecordId: inspection.permitRecordId },
+      AND: [{ issuedAt: { lt: expiresAt } }, { expiresAt: { gt: issuedAt } }],
+    },
+    select: { id: true },
+  });
+
+  if (overlapConflict) {
+    throw new AppError(
+      409,
+      "FIRE_SAFETY_CERTIFICATE_OVERLAP",
+      "An active certificate already exists for this permit in the requested validity window",
+    );
+  }
+
+  const certificateNumber = await generateCertificateNumber(
+    inspection.office.code,
+  );
+
   const record = await prisma.fireSafetyCertificate.create({
     data: {
-      certificateNumber: input.certificateNumber,
-      expiresAt: new Date(input.expiresAt),
+      certificateNumber,
+      expiresAt,
       inspectionId: input.inspectionId,
-      issuedAt: new Date(input.issuedAt),
+      issuedAt,
       remarks: input.remarks?.trim() || null,
-      status: input.status ?? "ISSUED",
+      status: "ISSUED",
     },
     include: {
       inspection: {

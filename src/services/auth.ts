@@ -335,3 +335,13 @@ export async function listUsers(input: ListUsersInput): Promise<{
     },
   };
 }
+
+export async function updateExpoPushToken(
+  userId: string,
+  token: string,
+): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { expoPushToken: token },
+  });
+}

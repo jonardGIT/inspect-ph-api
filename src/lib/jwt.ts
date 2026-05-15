@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 
 import { AppError } from "./errors.js";
-import type { UserRole } from "../types/auth.js";
+import { isUserRole, type UserRole } from "../types/auth.js";
 
 export type AuthRole = UserRole;
 
@@ -83,11 +83,7 @@ function verifyToken(token: string, expectedType: TokenType): AuthTokenPayload {
 
     const { role, sid, sub, type } = decoded as Partial<SignedTokenPayload>;
 
-    if (
-      (role !== "admin" && role !== "inspector") ||
-      !sub ||
-      type !== expectedType
-    ) {
+    if (!isUserRole(role) || !sub || type !== expectedType) {
       throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
     }
 

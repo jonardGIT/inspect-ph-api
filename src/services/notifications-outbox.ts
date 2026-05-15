@@ -1,3 +1,4 @@
+import type { AuthRole } from "../lib/auth-provider.js";
 import type {
   NotificationChannel,
   NotificationOutboxStatus,
@@ -20,7 +21,7 @@ export interface PublicNotificationOutboxEntry {
     email: string;
     id: string;
     name: string;
-    role: "admin" | "inspector";
+    role: AuthRole;
   };
   status: "pending" | "processed" | "failed";
   title: string;

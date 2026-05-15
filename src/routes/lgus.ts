@@ -1,3 +1,4 @@
+import { param } from "express-validator";
 import { Router } from "express";
 import { body, query } from "express-validator";
 
@@ -6,7 +7,7 @@ import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { requireJurisdiction } from "../middleware/jurisdiction.js";
-import { createLgu, listLgus } from "../services/lgus.js";
+import { archiveLgu, createLgu, listLgus } from "../services/lgus.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
 const router = Router();
@@ -90,6 +91,20 @@ router.post(
     });
 
     response.status(201).json({ data: lgu });
+  }),
+);
+
+router.patch(
+  "/:id/archive",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    param("id").isUUID().withMessage("id must be a valid UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    await archiveLgu(String(request.params.id));
+    response.status(204).send();
   }),
 );
 

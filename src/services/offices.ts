@@ -1,5 +1,6 @@
 import type { Office, Prisma } from "@prisma/client";
 
+import { AppError } from "../lib/errors.js";
 import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -42,7 +43,7 @@ function toPublicOffice(record: Office): PublicOffice {
 }
 
 function buildOfficeWhere(input: ListOfficesInput): Prisma.OfficeWhereInput {
-  const clauses: Prisma.OfficeWhereInput[] = [];
+  const clauses: Prisma.OfficeWhereInput[] = [{ archivedAt: null }];
 
   if (input.jurisdictionScope.accessScope === "assigned") {
     clauses.push({
@@ -110,4 +111,28 @@ export async function createOffice(
   });
 
   return toPublicOffice(office);
+}
+
+export async function archiveOffice(id: string): Promise<void> {
+  const office = await prisma.office.findUnique({
+    where: { id },
+    select: { id: true, archivedAt: true },
+  });
+
+  if (!office) {
+    throw new AppError(404, "OFFICE_NOT_FOUND", "Office not found");
+  }
+
+  if (office.archivedAt) {
+    throw new AppError(
+      409,
+      "OFFICE_ALREADY_ARCHIVED",
+      "Office is already archived",
+    );
+  }
+
+  await prisma.office.update({
+    where: { id },
+    data: { archivedAt: new Date() },
+  });
 }

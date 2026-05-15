@@ -7,6 +7,7 @@ import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { requireJurisdiction } from "../middleware/jurisdiction.js";
+import { requireModule } from "../middleware/module-gate.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
   createFireSafetyCertificate,
@@ -68,6 +69,7 @@ router.get(
   "/",
   authenticate,
   requireJurisdiction(),
+  requireModule("FIRE"),
   [
     query("page")
       .optional()
@@ -128,6 +130,7 @@ router.get(
   "/inspection/:inspectionId",
   authenticate,
   requireJurisdiction(),
+  requireModule("FIRE"),
   [
     param("inspectionId")
       .isUUID()
@@ -162,15 +165,12 @@ router.post(
   "/",
   authenticate,
   authorize(...ADMIN_ROLES),
+  requireJurisdiction(),
+  requireModule("FIRE"),
   [
     body("inspectionId")
       .isUUID()
       .withMessage("inspectionId must be a valid UUID"),
-    body("certificateNumber")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("certificateNumber is required"),
     body("issuedAt")
       .isISO8601()
       .withMessage("issuedAt must be a valid ISO date"),
@@ -178,10 +178,6 @@ router.post(
       .isISO8601()
       .withMessage("expiresAt must be a valid ISO date"),
     body("remarks").optional().isString(),
-    body("status")
-      .optional()
-      .isIn(["draft", "issued", "revoked", "expired"])
-      .withMessage("status must be a valid fire safety certificate status"),
     validateRequestMiddleware,
   ],
   asyncHandler(async (request, response) => {
@@ -192,7 +188,6 @@ router.post(
     const certificate = await createFireSafetyCertificate({
       actorRole: request.auth.role,
       actorUserId: request.auth.sub,
-      certificateNumber: String(request.body.certificateNumber),
       expiresAt: String(request.body.expiresAt),
       inspectionId: String(request.body.inspectionId),
       issuedAt: String(request.body.issuedAt),
@@ -200,7 +195,6 @@ router.post(
         typeof request.body.remarks === "string"
           ? request.body.remarks
           : undefined,
-      status: parseCertificateStatus(request.body.status),
     });
 
     response.status(201).json({ data: certificate });

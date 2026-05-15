@@ -1,5 +1,6 @@
 import type { Lgu, Prisma } from "@prisma/client";
 
+import { AppError } from "../lib/errors.js";
 import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -44,7 +45,7 @@ function toPublicLgu(record: Lgu): PublicLgu {
 }
 
 function buildLguWhere(input: ListLgusInput): Prisma.LguWhereInput {
-  const clauses: Prisma.LguWhereInput[] = [];
+  const clauses: Prisma.LguWhereInput[] = [{ archivedAt: null }];
 
   if (input.jurisdictionScope.accessScope === "assigned") {
     clauses.push({
@@ -109,4 +110,24 @@ export async function createLgu(input: CreateLguInput): Promise<PublicLgu> {
   });
 
   return toPublicLgu(lgu);
+}
+
+export async function archiveLgu(id: string): Promise<void> {
+  const lgu = await prisma.lgu.findUnique({
+    where: { id },
+    select: { id: true, archivedAt: true },
+  });
+
+  if (!lgu) {
+    throw new AppError(404, "LGU_NOT_FOUND", "LGU not found");
+  }
+
+  if (lgu.archivedAt) {
+    throw new AppError(409, "LGU_ALREADY_ARCHIVED", "LGU is already archived");
+  }
+
+  await prisma.lgu.update({
+    where: { id },
+    data: { archivedAt: new Date() },
+  });
 }

@@ -1,4 +1,5 @@
 import type { IncomingHttpHeaders } from "node:http";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 import type { AppEnv, PaymentProvider as PaymentProviderName } from "./env.js";
 import { loadEnv } from "./env.js";
@@ -109,20 +110,169 @@ class LocalPaymentProvider implements PaymentProvider {
 class PaymongoPaymentProvider implements PaymentProvider {
   kind: PaymentProviderName = "paymongo";
 
+  constructor(private readonly env: AppEnv) {}
+
   async createCheckoutSession(): Promise<PaymentCheckoutSession> {
     throw new AppError(
       501,
       "PAYMENT_PROVIDER_NOT_IMPLEMENTED",
-      "PayMongo payment provider is not implemented yet",
+      "PayMongo checkout is not implemented yet",
     );
   }
 
-  async parseWebhookEvent(): Promise<PaymentWebhookEvent> {
-    throw new AppError(
-      501,
-      "PAYMENT_PROVIDER_NOT_IMPLEMENTED",
-      "PayMongo payment provider is not implemented yet",
-    );
+  async parseWebhookEvent(input: {
+    body: unknown;
+    headers: IncomingHttpHeaders;
+  }): Promise<PaymentWebhookEvent> {
+    const webhookSecret = this.env.paymongoWebhookSecret;
+
+    if (!webhookSecret) {
+      throw new AppError(
+        500,
+        "PAYMENT_CONFIG_ERROR",
+        "PayMongo webhook secret is not configured",
+      );
+    }
+
+    // PayMongo sends the raw JSON body as a string and signs it
+    const rawBody =
+      typeof input.body === "string" ? input.body : JSON.stringify(input.body);
+
+    const signature = input.headers["paymongo-signature"];
+    if (typeof signature !== "string" || !signature) {
+      throw new AppError(
+        400,
+        "WEBHOOK_SIGNATURE_MISSING",
+        "PayMongo signature header is missing",
+      );
+    }
+
+    // PayMongo signature format: "t=<timestamp>,v1=<hmac>"
+    const parts: Record<string, string> = {};
+    for (const part of signature.split(",")) {
+      const [key, value] = part.split("=");
+      if (key && value !== undefined) {
+        parts[key] = value;
+      }
+    }
+
+    const timestamp = parts["t"];
+    const receivedHmac = parts["v1"];
+
+    if (!timestamp || !receivedHmac) {
+      throw new AppError(
+        400,
+        "WEBHOOK_SIGNATURE_INVALID",
+        "PayMongo signature header is malformed",
+      );
+    }
+
+    const payload = `${timestamp}.${rawBody}`;
+    const expectedHmac = createHmac("sha256", webhookSecret)
+      .update(payload)
+      .digest("hex");
+
+    const expectedBuffer = Buffer.from(expectedHmac, "utf8");
+    const receivedBuffer = Buffer.from(receivedHmac, "utf8");
+
+    if (
+      expectedBuffer.length !== receivedBuffer.length ||
+      !timingSafeEqual(expectedBuffer, receivedBuffer)
+    ) {
+      throw new AppError(
+        400,
+        "WEBHOOK_SIGNATURE_MISMATCH",
+        "PayMongo webhook signature verification failed",
+      );
+    }
+
+    // Parse the PayMongo event payload
+    const event =
+      typeof input.body === "string"
+        ? (JSON.parse(input.body) as unknown)
+        : input.body;
+
+    if (
+      !event ||
+      typeof event !== "object" ||
+      !("data" in event) ||
+      !event.data ||
+      typeof event.data !== "object"
+    ) {
+      throw new AppError(
+        400,
+        "INVALID_WEBHOOK_PAYLOAD",
+        "Unexpected PayMongo event shape",
+      );
+    }
+
+    const data = event.data as Record<string, unknown>;
+    const attributes = (
+      data.attributes && typeof data.attributes === "object"
+        ? data.attributes
+        : {}
+    ) as Record<string, unknown>;
+
+    const eventType =
+      typeof attributes.type === "string" ? attributes.type : "";
+
+    const dataAttributes = (
+      attributes.data &&
+      typeof attributes.data === "object" &&
+      "attributes" in (attributes.data as object)
+        ? (attributes.data as Record<string, unknown>).attributes
+        : {}
+    ) as Record<string, unknown>;
+
+    const providerPaymentId =
+      typeof dataAttributes.id === "string"
+        ? dataAttributes.id
+        : typeof data.id === "string"
+          ? data.id
+          : "";
+
+    if (!providerPaymentId) {
+      throw new AppError(
+        400,
+        "INVALID_WEBHOOK_PAYLOAD",
+        "Cannot resolve providerPaymentId from PayMongo event",
+      );
+    }
+
+    // Map PayMongo event types to local status
+    let status: PaymentWebhookEvent["status"];
+
+    if (
+      eventType === "payment.paid" ||
+      eventType === "link.payment.paid" ||
+      eventType === "checkout_session.payment.paid"
+    ) {
+      status = "paid";
+    } else if (
+      eventType === "payment.failed" ||
+      eventType === "link.payment.failed" ||
+      eventType === "checkout_session.payment.expired"
+    ) {
+      status = "failed";
+    } else {
+      status = "processing";
+    }
+
+    const failureReason =
+      typeof dataAttributes.last_payment_error === "string" &&
+      dataAttributes.last_payment_error
+        ? dataAttributes.last_payment_error
+        : typeof dataAttributes.description === "string" &&
+            dataAttributes.description &&
+            status === "failed"
+          ? dataAttributes.description
+          : undefined;
+
+    return {
+      failureReason,
+      providerPaymentId,
+      status,
+    };
   }
 }
 
@@ -130,7 +280,7 @@ export function getPaymentProvider(env?: AppEnv): PaymentProvider {
   const resolvedEnv = env ?? loadEnv();
 
   if (resolvedEnv.paymentProvider === "paymongo") {
-    return new PaymongoPaymentProvider();
+    return new PaymongoPaymentProvider(resolvedEnv);
   }
 
   return new LocalPaymentProvider(resolvedEnv);

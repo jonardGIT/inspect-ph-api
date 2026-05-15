@@ -1,3 +1,4 @@
+import type { AuthRole } from "../lib/auth-provider.js";
 import type { Prisma, UserRole } from "@prisma/client";
 
 import { AppError } from "../lib/errors.js";
@@ -17,7 +18,7 @@ export interface PublicUserOfficeAssignment {
     email: string;
     id: string;
     name: string;
-    role: "admin" | "inspector";
+    role: AuthRole;
   };
 }
 

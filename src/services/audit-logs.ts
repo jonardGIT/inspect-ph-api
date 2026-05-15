@@ -1,3 +1,4 @@
+import type { AuthRole } from "../lib/auth-provider.js";
 import type { Prisma, UserRole } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
@@ -19,7 +20,7 @@ export interface PublicAuditLog {
     email: string;
     id: string;
     name: string;
-    role: "admin" | "inspector";
+    role: AuthRole;
   };
   createdAt: string;
   detail?: string;
@@ -61,7 +62,7 @@ interface ListAuditLogsInput {
 
 interface RecordAuditLogInput {
   action: PublicAuditLog["action"];
-  actorRole?: "admin" | "inspector";
+  actorRole?: AuthRole;
   actorUserId?: string;
   detail?: string;
   entityId?: string;

@@ -1,8 +1,14 @@
-export const USER_ROLES = ["admin", "inspector"] as const;
+export const USER_ROLES = [
+  "admin",
+  "inspector",
+  "lgu_admin",
+  "office_supervisor",
+  "office_clerk",
+] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
 
-export type AccessScope = "assigned" | "global";
+export type AccessScope = "assigned" | "office" | "lgu" | "global";
 
 export interface RoleProfile {
   label: string;
@@ -12,7 +18,7 @@ export interface RoleProfile {
 
 export const ROLE_PROFILES: Record<UserRole, RoleProfile> = {
   admin: {
-    label: "BPLO Admin",
+    label: "Platform Admin",
     permissions: [
       "business:create",
       "business:read",
@@ -21,9 +27,71 @@ export const ROLE_PROFILES: Record<UserRole, RoleProfile> = {
       "permit:read",
       "permit:update",
       "inspection:assign",
+      "inspection:create",
       "inspection:read",
+      "inspection:update",
+      "certificate:create",
+      "certificate:read",
+      "lgu:manage",
+      "office:manage",
+      "user:manage",
+      "module:manage",
+      "report:read",
+      "payment:read",
     ],
     scope: "global",
+  },
+  lgu_admin: {
+    label: "LGU Administrator",
+    permissions: [
+      "business:create",
+      "business:read",
+      "business:update",
+      "permit:create",
+      "permit:read",
+      "permit:update",
+      "inspection:assign",
+      "inspection:create",
+      "inspection:read",
+      "inspection:update",
+      "certificate:create",
+      "certificate:read",
+      "office:manage",
+      "user:manage",
+      "report:read",
+      "payment:read",
+    ],
+    scope: "lgu",
+  },
+  office_supervisor: {
+    label: "Office Supervisor",
+    permissions: [
+      "business:read",
+      "permit:read",
+      "permit:update",
+      "inspection:assign",
+      "inspection:create",
+      "inspection:read",
+      "inspection:update",
+      "certificate:create",
+      "certificate:read",
+      "report:read",
+      "payment:read",
+    ],
+    scope: "office",
+  },
+  office_clerk: {
+    label: "Office Clerk",
+    permissions: [
+      "business:create",
+      "business:read",
+      "permit:create",
+      "permit:read",
+      "inspection:create",
+      "inspection:read",
+      "payment:read",
+    ],
+    scope: "office",
   },
   inspector: {
     label: "Field Inspector",
@@ -37,7 +105,13 @@ export const ROLE_PROFILES: Record<UserRole, RoleProfile> = {
   },
 };
 
-export const ADMIN_ROLES: UserRole[] = ["admin"];
+// Roles with elevated write access (used for authorize() guards on admin routes)
+export const ADMIN_ROLES: UserRole[] = [
+  "admin",
+  "lgu_admin",
+  "office_supervisor",
+];
+
 export const AUTHENTICATED_ROLES: UserRole[] = [...USER_ROLES];
 
 export function isUserRole(value: unknown): value is UserRole {
@@ -45,7 +119,7 @@ export function isUserRole(value: unknown): value is UserRole {
 }
 
 export function normalizeUserRoleInput(value: string): UserRole | null {
-  const normalized = value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase().replace(/-/g, "_");
 
   return isUserRole(normalized) ? normalized : null;
 }

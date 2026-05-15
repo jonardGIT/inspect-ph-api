@@ -8,6 +8,8 @@ import { body, param, query } from "express-validator";
 
 import { asyncHandler } from "../lib/async-handler.js";
 import { AppError } from "../lib/errors.js";
+import { inspectionEventBus } from "../lib/inspection-event-bus.js";
+import { getAuthProvider } from "../lib/auth-provider.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
@@ -20,6 +22,7 @@ import {
   createInspection,
   createFinding,
   getInspectionById,
+  getInspectionsByOffice,
   listInspectionMapPoints,
   getInspectionSummary,
   listInspectionHistory,
@@ -227,6 +230,51 @@ router.get(
 );
 
 router.get(
+  "/by-office",
+  authenticate,
+  requireJurisdiction(),
+  [
+    query("from")
+      .optional()
+      .isISO8601()
+      .withMessage("from must be a valid ISO 8601 date"),
+    query("lguId")
+      .optional()
+      .isUUID()
+      .withMessage("lguId must be a valid UUID"),
+    query("to")
+      .optional()
+      .isISO8601()
+      .withMessage("to must be a valid ISO 8601 date"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
+    }
+
+    const rows = await getInspectionsByOffice({
+      actorRole: request.auth.role,
+      actorUserId: request.auth.sub,
+      from:
+        typeof request.query.from === "string" ? request.query.from : undefined,
+      jurisdictionScope: request.jurisdictionScope ?? {
+        accessScope: request.auth.role === "admin" ? "global" : "assigned",
+        lguIds: [],
+        officeIds: [],
+      },
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
+      to: typeof request.query.to === "string" ? request.query.to : undefined,
+    });
+
+    response.json({ data: rows });
+  }),
+);
+
+router.get(
   "/checklist-templates",
   authenticate,
   [query("module").optional().isString(), validateRequestMiddleware],
@@ -328,6 +376,80 @@ router.get(
       ),
     });
   }),
+);
+
+// SSE: real-time inspection event stream scoped to the caller's jurisdiction
+// Must be registered BEFORE /:id routes to avoid route shadowing
+router.get(
+  "/events",
+  // EventSource cannot set headers, so we also accept token via query param
+  async (request, response, next) => {
+    try {
+      if (!request.auth) {
+        const rawToken =
+          typeof request.query.token === "string"
+            ? request.query.token
+            : undefined;
+
+        if (!rawToken) {
+          throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
+        }
+
+        request.auth = await getAuthProvider().verifyAccessToken(rawToken);
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  },
+  requireJurisdiction(),
+  (request, response) => {
+    if (!request.auth || !request.jurisdictionScope) {
+      response.status(401).end();
+      return;
+    }
+
+    const scope = request.jurisdictionScope;
+    const isGlobal = scope.accessScope === "global";
+
+    response.setHeader("Content-Type", "text/event-stream");
+    response.setHeader("Cache-Control", "no-cache");
+    response.setHeader("Connection", "keep-alive");
+    response.setHeader("X-Accel-Buffering", "no");
+    response.flushHeaders();
+
+    // Send a heartbeat every 25 seconds to keep the connection alive through proxies
+    const heartbeat = setInterval(() => {
+      response.write(":heartbeat\n\n");
+    }, 25_000);
+
+    const unsubscribe = inspectionEventBus.subscribe((event) => {
+      const allowed =
+        isGlobal ||
+        scope.officeIds.includes(event.officeId) ||
+        (event.lguId !== undefined && scope.lguIds.includes(event.lguId));
+
+      if (!allowed) {
+        return;
+      }
+
+      const data = JSON.stringify({
+        entityId: event.entityId,
+        entityType: event.entityType,
+        eventType: event.eventType,
+        officeId: event.officeId,
+        payload: event.payload,
+      });
+
+      response.write(`event: ${event.eventType}\ndata: ${data}\n\n`);
+    });
+
+    request.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  },
 );
 
 router.get(

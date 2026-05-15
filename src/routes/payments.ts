@@ -89,8 +89,9 @@ router.post(
     validateRequestMiddleware,
   ],
   asyncHandler(async (request, response) => {
+    const rawBody = (request as typeof request & { rawBody?: string }).rawBody;
     const payment = await processPaymentWebhook({
-      body: request.body,
+      body: rawBody ?? request.body,
       headers: request.headers,
     });
 

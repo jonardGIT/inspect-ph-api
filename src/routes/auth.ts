@@ -13,6 +13,7 @@ import {
   listUsers,
   login,
   refreshSession,
+  updateExpoPushToken,
 } from "../services/auth.js";
 import {
   listAuthSessions,
@@ -285,6 +286,29 @@ router.get(
     const user = await getCurrentUser(request.auth.sub);
 
     response.json({ data: user });
+  }),
+);
+
+// Register or update the caller's Expo push token for mobile notifications
+router.post(
+  "/push-token",
+  authenticate,
+  [
+    body("token")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("token must be a non-empty string"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      return;
+    }
+
+    await updateExpoPushToken(request.auth.sub, String(request.body.token));
+
+    response.status(204).send();
   }),
 );
 
