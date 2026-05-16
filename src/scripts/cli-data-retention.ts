@@ -14,7 +14,9 @@ async function main() {
   });
 
   console.log(
-    `Done: ${result.auditLogsDeleted} audit logs deleted, ${result.notificationsDeleted} notifications deleted`,
+    `Done: ${result.auditLogsDeleted} audit logs, ${result.notificationsDeleted} notifications, ` +
+      `${result.attachmentMetadataDeleted} attachment records, ${result.inspectionsDeleted} inspections deleted; ` +
+      `${result.issueReportsAnonymized} issue reports anonymized`,
   );
 
   process.exit(0);

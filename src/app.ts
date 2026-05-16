@@ -28,6 +28,7 @@ import officeModulesRouter from "./routes/office-modules.js";
 import officesRouter from "./routes/offices.js";
 import paymentsRouter from "./routes/payments.js";
 import permitsRouter from "./routes/permits.js";
+import privacyRouter from "./routes/privacy.js";
 import reportsRouter from "./routes/reports.js";
 import uploadsRouter from "./routes/uploads.js";
 
@@ -84,6 +85,7 @@ app.use(`${API_V1}/office-modules`, officeModulesRouter);
 app.use(`${API_V1}/offices`, officesRouter);
 app.use(`${API_V1}/payments`, paymentsRouter);
 app.use(`${API_V1}/permits`, permitsRouter);
+app.use(`${API_V1}/privacy/requests`, privacyRouter);
 app.use(`${API_V1}/reports`, reportsRouter);
 app.use(`${API_V1}/uploads`, uploadsRouter);
 

@@ -29,6 +29,7 @@ model User {
   officeAssignments         UserOfficeAssignment[]
   submittedDisputes         FindingDispute[]       @relation("DisputeSubmitter")
   resolvedDisputes          FindingDispute[]       @relation("DisputeResolver")
+  dataSubjectRequests       DataSubjectRequest[]
 
   @@index([lguId])
   @@index([businessId])
@@ -426,6 +427,24 @@ model FindingDispute {
   @@index([disputedByUserId])
 }
 
+model DataSubjectRequest {
+  id                String                    @id @default(uuid())
+  type              DataSubjectRequestType
+  status            DataSubjectRequestStatus  @default(PENDING)
+  requestedByUserId String?
+  email             String
+  description       String
+  response          String?
+  completedAt       DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  requestedBy       User?                     @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([requestedByUserId])
+  @@index([createdAt])
+}
+
 model Attachment {
   id                     String     @id @default(uuid())
   inspectionId           String
@@ -545,4 +564,18 @@ enum NotificationOutboxStatus {
   PENDING
   PROCESSED
   FAILED
+}
+
+enum DataSubjectRequestType {
+  ACCESS
+  CORRECTION
+  ERASURE
+}
+
+enum DataSubjectRequestStatus {
+  PENDING
+  IN_REVIEW
+  COMPLETED
+  REJECTED
+  WITHDRAWN
 }
