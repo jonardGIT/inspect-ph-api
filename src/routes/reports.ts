@@ -9,6 +9,14 @@ import {
   getPaymentReconciliation,
   getTreasurerReport,
 } from "../services/reports.js";
+import { getKpiReport } from "../services/kpi-report.js";
+import { getInspectorWellnessReport } from "../services/inspector-wellness.js";
+import {
+  listAnomalyFlags,
+  resolveAnomalyFlag,
+} from "../services/payment-anomaly.js";
+import { parsePaginationQuery } from "../lib/request.js";
+import { param } from "express-validator";
 import { ADMIN_ROLES } from "../types/auth.js";
 
 const router = Router();
@@ -150,6 +158,139 @@ router.get(
     });
 
     response.json({ data: result });
+  }),
+);
+
+router.get(
+  "/kpi",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    query("fromDate")
+      .optional()
+      .isISO8601()
+      .withMessage("fromDate must be an ISO8601 date"),
+    query("toDate")
+      .optional()
+      .isISO8601()
+      .withMessage("toDate must be an ISO8601 date"),
+    query("lguId").optional().isUUID().withMessage("lguId must be a UUID"),
+    query("officeId")
+      .optional()
+      .isUUID()
+      .withMessage("officeId must be a UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const result = await getKpiReport({
+      fromDate:
+        typeof request.query.fromDate === "string"
+          ? request.query.fromDate
+          : undefined,
+      toDate:
+        typeof request.query.toDate === "string"
+          ? request.query.toDate
+          : undefined,
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
+      officeId:
+        typeof request.query.officeId === "string"
+          ? request.query.officeId
+          : undefined,
+      jurisdictionScope: request.jurisdictionScope,
+    });
+    response.json({ data: result });
+  }),
+);
+
+router.get(
+  "/wellness",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    query("fromDate")
+      .optional()
+      .isISO8601()
+      .withMessage("fromDate must be ISO8601"),
+    query("toDate")
+      .optional()
+      .isISO8601()
+      .withMessage("toDate must be ISO8601"),
+    query("lguId").optional().isUUID().withMessage("lguId must be a UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const result = await getInspectorWellnessReport({
+      fromDate:
+        typeof request.query.fromDate === "string"
+          ? request.query.fromDate
+          : undefined,
+      toDate:
+        typeof request.query.toDate === "string"
+          ? request.query.toDate
+          : undefined,
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
+      jurisdictionScope: request.jurisdictionScope,
+    });
+    response.json({ data: result });
+  }),
+);
+
+router.get(
+  "/payment-anomalies",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    query("includeResolved")
+      .optional()
+      .isBoolean()
+      .withMessage("includeResolved must be boolean"),
+    query("lguId").optional().isUUID().withMessage("lguId must be a UUID"),
+    query("page").optional().isInt({ min: 1 }),
+    query("limit").optional().isInt({ min: 1, max: 100 }),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const { page, limit } = parsePaginationQuery(
+      request.query as Record<string, unknown>,
+    );
+    const result = await listAnomalyFlags({
+      includeResolved: request.query.includeResolved === "true",
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
+      page,
+      limit,
+    });
+    const { createListMeta } = await import("../lib/request.js");
+    response.json({
+      data: result.items,
+      meta: createListMeta(result.total, page, limit),
+    });
+  }),
+);
+
+router.patch(
+  "/payment-anomalies/:id/resolve",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    param("id").isUUID().withMessage("id must be a valid UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    if (!request.auth) return;
+    const flag = await resolveAnomalyFlag(
+      String(request.params["id"]),
+      request.auth.sub,
+    );
+    response.json({ data: flag });
   }),
 );
 

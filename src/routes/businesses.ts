@@ -13,6 +13,7 @@ import {
   listBusinesses,
   updateBusiness,
 } from "../services/businesses.js";
+import { computeComplianceScore } from "../services/compliance-score.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
 const router = Router();
@@ -216,6 +217,19 @@ router.patch(
   asyncHandler(async (request, response) => {
     const business = await archiveBusiness(request.params["id"] as string);
     response.json({ data: business });
+  }),
+);
+
+router.get(
+  "/:id/compliance-score",
+  authenticate,
+  [
+    param("id").isUUID().withMessage("id must be a valid UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const result = await computeComplianceScore(String(request.params["id"]));
+    response.json({ data: result });
   }),
 );
 

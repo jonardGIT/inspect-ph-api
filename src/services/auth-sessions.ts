@@ -147,9 +147,25 @@ export async function assertRefreshSessionActive(input: {
     where: { id: input.sessionId },
   });
 
+  if (!session || session.userId !== input.userId) {
+    throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
+  }
+
+  // Refresh token reuse detection: if the session is otherwise active but the
+  // token hash doesn't match, a previously-issued token has been presented again.
+  // This strongly indicates token theft — revoke the session immediately.
   if (
-    !session ||
-    session.userId !== input.userId ||
+    !isSessionInactive(session) &&
+    session.refreshTokenHash !== hashRefreshToken(input.refreshToken)
+  ) {
+    await prisma.authSession.update({
+      data: { revokedAt: new Date() },
+      where: { id: input.sessionId },
+    });
+    throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
+  }
+
+  if (
     session.refreshTokenHash !== hashRefreshToken(input.refreshToken) ||
     isSessionInactive(session)
   ) {

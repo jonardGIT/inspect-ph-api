@@ -32,23 +32,34 @@ model User {
   submittedDisputes         FindingDispute[]       @relation("DisputeSubmitter")
   resolvedDisputes          FindingDispute[]       @relation("DisputeResolver")
   dataSubjectRequests       DataSubjectRequest[]
+  resolvedAnomalyFlags      PaymentAnomalyFlag[]
+  oauthAuthCodes            OAuthAuthorizationCode[]
+  oauthAccessTokens         OAuthAccessToken[]
+  requestedRecognitions     CrossLguRecognitionRequest[] @relation("RecognitionRequester")
+  consentedRecognitions     CrossLguRecognitionRequest[] @relation("RecognitionConsentOwner")
+  resolvedRecognitions      CrossLguRecognitionRequest[] @relation("RecognitionResolver")
 
   @@index([lguId])
   @@index([businessId])
 }
 
 model Lgu {
-  id         String    @id @default(uuid())
-  code       String    @unique
-  name       String
-  region     String?
-  province   String?
-  city       String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  archivedAt DateTime?
-  offices    Office[]
-  users      User[]
+  id               String                 @id @default(uuid())
+  code             String                 @unique
+  name             String
+  region           String?
+  province         String?
+  city             String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  archivedAt       DateTime?
+  offices               Office[]
+  users                 User[]
+  webhookEndpoints             LguWebhookEndpoint[]
+  checklistTemplates           ChecklistTemplate[]
+  templateRatings              ChecklistTemplateRating[]
+  outgoingRecognitionRequests  CrossLguRecognitionRequest[] @relation("RecognitionRequesterLgu")
+  incomingRecognitionRequests  CrossLguRecognitionRequest[] @relation("RecognitionIssuerLgu")
 
   @@index([name])
   @@index([region, province, city])
@@ -319,6 +330,7 @@ model PaymentRecord {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   permitRecord      PermitRecord    @relation(fields: [permitRecordId], references: [id], onDelete: Cascade)
+  anomalyFlags      PaymentAnomalyFlag[]
 
   @@index([permitRecordId])
   @@index([status])
@@ -327,19 +339,29 @@ model PaymentRecord {
 }
 
 model ChecklistTemplate {
-  id          String                      @id @default(uuid())
-  module      String
-  code        String                      @unique
-  title       String
-  description String?
-  sortOrder   Int                         @default(0)
-  isActive    Boolean                     @default(true)
-  version     Int                         @default(1)
-  createdAt   DateTime                    @default(now())
-  updatedAt   DateTime                    @updatedAt
-  results     InspectionChecklistResult[]
+  id             String                      @id @default(uuid())
+  module         String
+  code           String                      @unique
+  title          String
+  description    String?
+  sortOrder      Int                         @default(0)
+  isActive       Boolean                     @default(true)
+  version        Int                         @default(1)
+  lguId          String?
+  forkedFromId   String?
+  isMarketplace  Boolean                     @default(false)
+  publishedAt    DateTime?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  results        InspectionChecklistResult[]
+  ratings        ChecklistTemplateRating[]
+  lgu            Lgu?                        @relation(fields: [lguId], references: [id])
+  forkedFrom     ChecklistTemplate?          @relation("TemplateForked", fields: [forkedFromId], references: [id])
+  forks          ChecklistTemplate[]         @relation("TemplateForked")
 
   @@index([module, isActive])
+  @@index([lguId])
+  @@index([isMarketplace])
 }
 
 model InspectionChecklistResult {
@@ -575,6 +597,170 @@ model ProcessedWebhookEvent {
   processedAt DateTime @default(now())
 
   @@index([processedAt])
+}
+
+model PaymentAnomalyFlag {
+  id             String        @id @default(uuid())
+  paymentId      String
+  reason         String        // DUPLICATE | AMOUNT_MISMATCH | LOW_AMOUNT | HIGH_VELOCITY
+  detail         String?
+  quarantinedAt  DateTime      @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+  payment        PaymentRecord @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  resolvedBy     User?         @relation(fields: [resolvedById], references: [id])
+
+  @@index([paymentId])
+  @@index([resolvedAt])
+  @@index([quarantinedAt])
+}
+
+model ChecklistTemplateRating {
+  id         String            @id @default(uuid())
+  templateId String
+  lguId      String
+  rating     Int               // 1–5
+  comment    String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  template   ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  lgu        Lgu               @relation(fields: [lguId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, lguId])
+  @@index([templateId])
+  @@index([lguId])
+}
+
+model LguWebhookEndpoint {
+  id         String            @id @default(uuid())
+  lguId      String
+  url        String
+  secret     String
+  events     String[]
+  isActive   Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  lgu        Lgu               @relation(fields: [lguId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([lguId])
+  @@index([isActive])
+}
+
+model WebhookDelivery {
+  id          String             @id @default(uuid())
+  endpointId  String
+  event       String
+  payload     Json
+  statusCode  Int?
+  attempt     Int                @default(1)
+  success     Boolean            @default(false)
+  sentAt      DateTime           @default(now())
+  nextRetryAt DateTime?
+  endpoint    LguWebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId])
+  @@index([success])
+  @@index([nextRetryAt])
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 third-party app authorization
+// ---------------------------------------------------------------------------
+
+model OAuthClient {
+  id           String                   @id @default(uuid())
+  clientId     String                   @unique
+  clientSecret String                   // bcrypt-hashed
+  name         String
+  description  String?
+  redirectUri  String
+  scopes       String[]
+  isActive     Boolean                  @default(true)
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  authCodes    OAuthAuthorizationCode[]
+  accessTokens OAuthAccessToken[]
+
+  @@index([clientId])
+}
+
+model OAuthAuthorizationCode {
+  id          String      @id @default(uuid())
+  code        String      @unique
+  clientId    String
+  userId      String
+  scope       String[]
+  redirectUri String
+  expiresAt   DateTime
+  used        Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  client      OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([clientId])
+  @@index([userId])
+}
+
+model OAuthAccessToken {
+  id        String      @id @default(uuid())
+  token     String      @unique
+  clientId  String
+  userId    String
+  scope     String[]
+  expiresAt DateTime
+  createdAt DateTime    @default(now())
+  client    OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([clientId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Cross-LGU mutual recognition
+// ---------------------------------------------------------------------------
+
+model CrossLguRecognitionRequest {
+  id                String                    @id @default(uuid())
+  requestingLguId   String
+  issuingLguId      String?
+  certificateNumber String
+  businessName      String
+  status            CrossLguRecognitionStatus @default(PENDING_CONSENT)
+  requestedByUserId String?
+  consentOwnerId    String?
+  complianceScore   Int?
+  complianceGrade   String?
+  signedPayload     String?
+  signature         String?
+  consentGivenAt    DateTime?
+  resolvedAt        DateTime?
+  resolvedByUserId  String?
+  expiresAt         DateTime
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  requestingLgu     Lgu                       @relation("RecognitionRequesterLgu", fields: [requestingLguId], references: [id])
+  issuingLgu        Lgu?                      @relation("RecognitionIssuerLgu", fields: [issuingLguId], references: [id])
+  requestedByUser   User?                     @relation("RecognitionRequester", fields: [requestedByUserId], references: [id])
+  consentOwner      User?                     @relation("RecognitionConsentOwner", fields: [consentOwnerId], references: [id])
+  resolvedByUser    User?                     @relation("RecognitionResolver", fields: [resolvedByUserId], references: [id])
+
+  @@index([requestingLguId])
+  @@index([issuingLguId])
+  @@index([certificateNumber])
+  @@index([status])
+  @@index([consentOwnerId])
+}
+
+enum CrossLguRecognitionStatus {
+  PENDING_CONSENT
+  CONSENT_GRANTED
+  APPROVED
+  REJECTED
+  EXPIRED
 }
 
 enum DataSubjectRequestType {

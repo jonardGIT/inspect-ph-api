@@ -9,6 +9,7 @@ import QRCode from "qrcode";
 import { AppError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import type { JurisdictionScope } from "../middleware/jurisdiction.js";
+import { enqueueWebhookEvent } from "./webhook-delivery.js";
 
 const FIREGUARD_MODULE_CODE = "FIRE";
 
@@ -595,6 +596,21 @@ export async function createFireSafetyCertificate(
       },
     },
   });
+
+  const lguId = record.inspection.office.lguId;
+  if (lguId) {
+    void enqueueWebhookEvent(lguId, "certificate.issued", {
+      certificateId: record.id,
+      certificateNumber: record.certificateNumber,
+      businessId: record.inspection.business.id,
+      businessName: record.inspection.business.businessName,
+      inspectionId: record.inspection.id,
+      permitId: record.inspection.permitRecord.id,
+      permitNumber: record.inspection.permitRecord.permitNumber,
+      issuedAt: record.issuedAt.toISOString(),
+      expiresAt: record.expiresAt.toISOString(),
+    });
+  }
 
   return toPublicFireSafetyCertificate(record);
 }

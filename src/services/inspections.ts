@@ -17,6 +17,7 @@ import { getAttachmentStorageProvider } from "../lib/storage-provider.js";
 import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { recordAuditLog } from "./audit-logs.js";
 import { enqueueNotificationOutbox } from "./notifications-outbox.js";
+import { enqueueWebhookEvent } from "./webhook-delivery.js";
 
 export interface ListInspectionsInput {
   actorRole: AuthRole;
@@ -1117,6 +1118,22 @@ export async function updateInspectionStatus(
     },
   });
 
+  if (input.status === "COMPLETED" && updatedInspection.office.lguId) {
+    void enqueueWebhookEvent(
+      updatedInspection.office.lguId,
+      "inspection.completed",
+      {
+        inspectionId: updatedInspection.id,
+        businessId: updatedInspection.businessId,
+        businessName: updatedInspection.business.businessName,
+        permitId: updatedInspection.permitRecord.id,
+        permitNumber: updatedInspection.permitRecord.permitNumber,
+        officeId: updatedInspection.office.id,
+        completedAt: updatedInspection.completedAt?.toISOString(),
+      },
+    );
+  }
+
   return toPublicInspection(updatedInspection);
 }
 
@@ -1302,6 +1319,20 @@ export async function createFinding(input: {
     entityType: "finding",
     summary: `Logged finding: ${finding.title}`,
   });
+
+  // Fire webhook — look up lguId via office
+  const inspectionMeta = await prisma.inspection.findUnique({
+    where: { id: input.inspectionId },
+    select: { office: { select: { lguId: true } } },
+  });
+  if (inspectionMeta?.office.lguId) {
+    void enqueueWebhookEvent(inspectionMeta.office.lguId, "finding.raised", {
+      findingId: finding.id,
+      inspectionId: finding.inspectionId,
+      title: finding.title,
+      severity: finding.severity,
+    });
+  }
 
   return toPublicFinding(finding);
 }

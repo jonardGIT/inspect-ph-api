@@ -22,9 +22,23 @@ export interface PublicAuditLog {
     | "inspection.created"
     | "inspection.status_updated"
     | "lgu.provisioned"
+    | "payment.anomaly_detected"
+    | "payment.anomaly_resolved"
     | "payment.status_updated"
     | "permit.expiry_reminder"
-    | "reinspection.requested";
+    | "reinspection.requested"
+    | "checklist_template.forked"
+    | "checklist_template.promoted"
+    | "checklist_template.published"
+    | "oauth_client.created"
+    | "oauth_client.deleted"
+    | "recognition.approved"
+    | "recognition.consent_denied"
+    | "recognition.consent_granted"
+    | "recognition.rejected"
+    | "recognition.requested"
+    | "webhook_endpoint.created"
+    | "webhook_endpoint.deleted";
   actor?: {
     email: string;
     id: string;
@@ -46,8 +60,13 @@ export interface PublicAuditLog {
     | "lgu"
     | "office"
     | "payment"
+    | "checklist_template"
+    | "oauth_client"
+    | "recognition_request"
+    | "payment_anomaly_flag"
     | "permit"
-    | "user";
+    | "user"
+    | "webhook_endpoint";
   id: string;
   summary: string;
 }

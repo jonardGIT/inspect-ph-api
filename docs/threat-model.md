@@ -138,15 +138,15 @@
 
 ## 6. Residual Risks and TODOs
 
-| ID   | Risk                                                                                                 | Priority | Owner              |
-| ---- | ---------------------------------------------------------------------------------------------------- | -------- | ------------------ |
-| R-01 | Webhook replay (no idempotency key dedup)                                                            | High     | API                |
-| R-02 | EXIF metadata not stripped server-side                                                               | Medium   | API                |
-| R-03 | No account lockout after repeated failed logins                                                      | Medium   | API                |
-| R-04 | JWT refresh tokens not rotated on each use (single-rotation)                                         | Medium   | API                |
-| R-05 | Mobile app does not certificate-pin API TLS                                                          | Low      | Mobile             |
-| R-06 | No Content Security Policy on dashboard HTML responses                                               | Low      | Dashboard          |
-| R-07 | Sentry DSN exposed to client bundle (acceptable for error reporting; ensure no PII in error context) | Low      | Dashboard / Mobile |
+| ID   | Risk                                                                                                 | Priority | Owner              | Status                                                                                                                                                  |
+| ---- | ---------------------------------------------------------------------------------------------------- | -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R-01 | Webhook replay (no idempotency key dedup)                                                            | High     | API                | ✅ Resolved — `ProcessedWebhookEvent` idempotency store added (Pass 27)                                                                                 |
+| R-02 | EXIF metadata not stripped server-side                                                               | Medium   | API                | ✅ Resolved — `sharp` strips EXIF before local storage write (Pass 28)                                                                                  |
+| R-03 | No account lockout after repeated failed logins                                                      | Medium   | API                | ✅ Resolved — 10-attempt lockout with 15-min window (Pass 27)                                                                                           |
+| R-04 | JWT refresh tokens not rotated on each use (single-rotation)                                         | Medium   | API                | ✅ Resolved — reuse detection added to `assertRefreshSessionActive`; stale hash on active session triggers immediate revocation (Pass 28)               |
+| R-05 | Mobile app does not certificate-pin API TLS                                                          | Low      | Mobile             | ⚠️ Scaffolded — `lib/tls-pinning.ts` documents integration steps and cert-hash rotation procedure; activation requires production cert hash + EAS build |
+| R-06 | No Content Security Policy on dashboard HTML responses                                               | Low      | Dashboard          | ✅ Resolved — CSP + X-Frame-Options + X-Content-Type-Options headers added in `next.config.ts` (Pass 28)                                                |
+| R-07 | Sentry DSN exposed to client bundle (acceptable for error reporting; ensure no PII in error context) | Low      | Dashboard / Mobile | ✅ Resolved — `beforeSend` hooks in all three Sentry configs scrub PII fields and strip user email/name before ingestion (Pass 28)                      |
 
 ---
 

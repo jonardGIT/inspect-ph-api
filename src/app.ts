@@ -32,6 +32,11 @@ import permitsRouter from "./routes/permits.js";
 import privacyRouter from "./routes/privacy.js";
 import reportsRouter from "./routes/reports.js";
 import uploadsRouter from "./routes/uploads.js";
+import openDataRouter from "./routes/open-data.js";
+import webhookEndpointsRouter from "./routes/webhook-endpoints.js";
+import { checklistMarketplaceRouter } from "./routes/checklist-marketplace.js";
+import { oauthRouter } from "./routes/oauth.js";
+import { mutualRecognitionRouter } from "./routes/mutual-recognition.js";
 
 const app = express();
 export const API_V1 = "/api/v1";
@@ -73,6 +78,7 @@ app.use(`${API_V1}/auth`, authRouter);
 app.use(`${API_V1}/audit-logs`, auditLogsRouter);
 app.use(`${API_V1}/caps`, capsRouter);
 app.use(`${API_V1}/checklist-templates`, checklistTemplatesRouter);
+app.use(`${API_V1}/checklist-templates`, checklistMarketplaceRouter);
 app.use(`${API_V1}/businesses`, businessesRouter);
 app.use(`${API_V1}/fire-safety-certificates`, fireSafetyCertificatesRouter);
 app.use(`${API_V1}/findings`, capsRouter);
@@ -90,6 +96,10 @@ app.use(`${API_V1}/permits`, permitsRouter);
 app.use(`${API_V1}/privacy/requests`, privacyRouter);
 app.use(`${API_V1}/reports`, reportsRouter);
 app.use(`${API_V1}/uploads`, uploadsRouter);
+app.use(`${API_V1}/open-data`, openDataRouter);
+app.use(`${API_V1}/webhook-endpoints`, webhookEndpointsRouter);
+app.use(`${API_V1}/oauth`, oauthRouter);
+app.use(`${API_V1}/mutual-recognition`, mutualRecognitionRouter);
 
 app.use(notFoundHandler);
 

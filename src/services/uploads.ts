@@ -1,6 +1,8 @@
 import { access, mkdir, writeFile } from "fs/promises";
 import path from "path";
 
+import sharp from "sharp";
+
 import { loadEnv } from "../lib/env.js";
 import { AppError } from "../lib/errors.js";
 import {
@@ -58,11 +60,21 @@ export async function uploadLocalAttachmentBinary(
   const { storageKey } = verifyLocalUploadToken(input.token);
   const filePath = resolveStoragePath(env.uploadsDir, storageKey);
 
+  // Strip EXIF and other metadata from images before persisting
+  const mime = input.mimeType?.trim().toLowerCase() ?? "";
+  const isImage =
+    mime === "image/jpeg" || mime === "image/png" || mime === "image/webp";
+  const bodyToWrite = isImage
+    ? await sharp(input.body)
+        .withMetadata({ orientation: undefined })
+        .toBuffer()
+    : input.body;
+
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, input.body);
+  await writeFile(filePath, bodyToWrite);
 
   return {
-    fileSizeBytes: input.body.length,
+    fileSizeBytes: bodyToWrite.length,
     mimeType: input.mimeType?.trim() || "application/octet-stream",
     storageKey,
     uploaded: true,

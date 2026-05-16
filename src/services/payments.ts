@@ -7,6 +7,8 @@ import { AppError } from "../lib/errors.js";
 import { getPaymentProvider } from "../lib/payment-provider.js";
 import { prisma } from "../lib/prisma.js";
 import { recordAuditLog } from "./audit-logs.js";
+import { detectAndFlagAnomalies } from "./payment-anomaly.js";
+import { enqueueWebhookEvent } from "./webhook-delivery.js";
 
 export interface PublicPayment {
   id: string;
@@ -355,6 +357,32 @@ export async function processPaymentWebhook(input: {
     await prisma.processedWebhookEvent.create({
       data: { eventId: event.eventId },
     });
+  }
+
+  // Anomaly detection: quarantine suspicious PAID payments
+  if (event.status === "paid") {
+    await detectAndFlagAnomalies(updated.id);
+
+    // Outbound webhook: payment.received
+    const paymentInspection = await prisma.inspection.findFirst({
+      where: { permitRecordId: updated.permitRecordId },
+      select: { office: { select: { lguId: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    const lguId = paymentInspection?.office.lguId;
+    if (lguId) {
+      void enqueueWebhookEvent(lguId, "payment.received", {
+        paymentId: updated.id,
+        referenceNumber: updated.referenceNumber,
+        receiptNumber: updated.receiptNumber,
+        amountInMinor: updated.amountInMinor,
+        currency: updated.currency,
+        paidAt: updated.paidAt?.toISOString(),
+        permitId: updated.permitRecordId,
+        businessId: updated.permitRecord.business.id,
+        businessName: updated.permitRecord.business.businessName,
+      });
+    }
   }
 
   return toPublicPayment(updated);
