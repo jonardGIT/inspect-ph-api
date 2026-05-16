@@ -209,13 +209,46 @@ export async function login(
     throw new AppError(401, "UNAUTHORIZED", "Invalid credentials");
   }
 
+  // Account lockout: reject if locked
+  if (user.lockedUntil && user.lockedUntil > new Date()) {
+    const secondsRemaining = Math.ceil(
+      (user.lockedUntil.getTime() - Date.now()) / 1000,
+    );
+    throw new AppError(
+      429,
+      "ACCOUNT_LOCKED",
+      `Account is temporarily locked. Try again in ${secondsRemaining} seconds.`,
+    );
+  }
+
   const passwordMatches = await comparePassword(
     input.password,
     user.passwordHash,
   );
 
   if (!passwordMatches) {
+    const MAX_ATTEMPTS = 10;
+    const LOCKOUT_MINUTES = 15;
+    const nextAttempts = user.failedLoginAttempts + 1;
+    const shouldLock = nextAttempts >= MAX_ATTEMPTS;
+    await prisma.user.update({
+      data: {
+        failedLoginAttempts: nextAttempts,
+        lockedUntil: shouldLock
+          ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000)
+          : null,
+      },
+      where: { id: user.id },
+    });
     throw new AppError(401, "UNAUTHORIZED", "Invalid credentials");
+  }
+
+  // Reset lockout state on successful login
+  if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+    await prisma.user.update({
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+      where: { id: user.id },
+    });
   }
 
   await recordAuditLog({
@@ -366,12 +399,20 @@ export async function registerUser(
   const existing = await prisma.user.findUnique({ where: { email } });
 
   if (existing) {
-    throw new AppError(409, "EMAIL_ALREADY_REGISTERED", "Email is already registered");
+    throw new AppError(
+      409,
+      "EMAIL_ALREADY_REGISTERED",
+      "Email is already registered",
+    );
   }
 
   if (input.role === "business_owner") {
     if (!input.businessId) {
-      throw new AppError(400, "BUSINESS_ID_REQUIRED", "businessId is required for business_owner registration");
+      throw new AppError(
+        400,
+        "BUSINESS_ID_REQUIRED",
+        "businessId is required for business_owner registration",
+      );
     }
 
     const business = await prisma.businessEstablishment.findUnique({
@@ -436,7 +477,11 @@ export async function changePassword(
   const isValid = await comparePassword(currentPassword, user.passwordHash);
 
   if (!isValid) {
-    throw new AppError(401, "INVALID_CREDENTIALS", "Current password is incorrect");
+    throw new AppError(
+      401,
+      "INVALID_CREDENTIALS",
+      "Current password is incorrect",
+    );
   }
 
   const newHash = await hashPassword(newPassword);

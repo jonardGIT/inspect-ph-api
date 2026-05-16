@@ -7,6 +7,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import {
   exportInspectionsCsv,
   getPaymentReconciliation,
+  getTreasurerReport,
 } from "../services/reports.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -107,39 +108,40 @@ router.get(
   }),
 );
 
+// GET /reports/treasurer — admin / lgu_admin: daily fee-collection, aging receivables
 router.get(
-  "/inspections/export",
+  "/treasurer",
   authenticate,
   authorize(...ADMIN_ROLES),
   [
+    query("fromDate")
+      .optional()
+      .isISO8601()
+      .withMessage("fromDate must be ISO 8601"),
+    query("toDate")
+      .optional()
+      .isISO8601()
+      .withMessage("toDate must be ISO 8601"),
     query("officeId")
       .optional()
       .isUUID()
       .withMessage("officeId must be a UUID"),
-    query("status").optional().isString(),
-    query("fromDate")
-      .optional()
-      .isISO8601()
-      .withMessage("fromDate must be an ISO 8601 date"),
-    query("toDate")
-      .optional()
-      .isISO8601()
-      .withMessage("toDate must be an ISO 8601 date"),
+    query("lguId").optional().isUUID().withMessage("lguId must be a UUID"),
     validateRequestMiddleware,
   ],
   asyncHandler(async (request, response) => {
-    const csv = await exportInspectionsCsv({
+    const result = await getTreasurerReport({
       fromDate:
         typeof request.query.fromDate === "string"
           ? request.query.fromDate
           : undefined,
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
       officeId:
         typeof request.query.officeId === "string"
           ? request.query.officeId
-          : undefined,
-      status:
-        typeof request.query.status === "string"
-          ? request.query.status
           : undefined,
       toDate:
         typeof request.query.toDate === "string"
@@ -147,13 +149,7 @@ router.get(
           : undefined,
     });
 
-    const filename = `inspections-export-${new Date().toISOString().slice(0, 10)}.csv`;
-    response.setHeader("Content-Type", "text/csv; charset=utf-8");
-    response.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${filename}"`,
-    );
-    response.send(csv);
+    response.json({ data: result });
   }),
 );
 

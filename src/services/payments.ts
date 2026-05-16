@@ -272,6 +272,28 @@ export async function processPaymentWebhook(input: {
     headers: input.headers,
   });
 
+  // Idempotency: skip already-processed events
+  if (event.eventId) {
+    const alreadyProcessed = await prisma.processedWebhookEvent.findUnique({
+      where: { eventId: event.eventId },
+    });
+    if (alreadyProcessed) {
+      // Return the current payment state without reprocessing
+      const payment = await prisma.paymentRecord.findUnique({
+        include: {
+          permitRecord: {
+            include: { business: { select: { businessName: true, id: true } } },
+          },
+        },
+        where: { providerPaymentId: event.providerPaymentId },
+      });
+      if (!payment) {
+        throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+      }
+      return toPublicPayment(payment);
+    }
+  }
+
   const existing = await prisma.paymentRecord.findUnique({
     include: {
       permitRecord: {
@@ -327,6 +349,13 @@ export async function processPaymentWebhook(input: {
     summary: `Payment ${updated.referenceNumber} transitioned to ${event.status} via webhook`,
     detail: event.providerPaymentId,
   });
+
+  // Record the event ID so replays are ignored
+  if (event.eventId) {
+    await prisma.processedWebhookEvent.create({
+      data: { eventId: event.eventId },
+    });
+  }
 
   return toPublicPayment(updated);
 }

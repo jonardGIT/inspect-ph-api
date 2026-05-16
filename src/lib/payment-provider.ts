@@ -21,6 +21,7 @@ export interface PaymentCheckoutSession {
 }
 
 export interface PaymentWebhookEvent {
+  eventId?: string;
   failureReason?: string;
   providerPaymentId: string;
   status: "processing" | "paid" | "failed";
@@ -269,6 +270,7 @@ class PaymongoPaymentProvider implements PaymentProvider {
           : undefined;
 
     return {
+      eventId: typeof data.id === "string" ? data.id : undefined,
       failureReason,
       providerPaymentId,
       status,

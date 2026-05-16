@@ -21,6 +21,7 @@ export interface PublicAuditLog {
     | "inspection.checklist_result_recorded"
     | "inspection.created"
     | "inspection.status_updated"
+    | "lgu.provisioned"
     | "payment.status_updated"
     | "permit.expiry_reminder"
     | "reinspection.requested";
