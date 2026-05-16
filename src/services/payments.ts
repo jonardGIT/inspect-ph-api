@@ -6,6 +6,7 @@ import type { PaymentProvider, PaymentStatus, Prisma } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
 import { getPaymentProvider } from "../lib/payment-provider.js";
 import { prisma } from "../lib/prisma.js";
+import { recordAuditLog } from "./audit-logs.js";
 
 export interface PublicPayment {
   id: string;
@@ -302,6 +303,14 @@ export async function processPaymentWebhook(input: {
       },
     },
     where: { id: existing.id },
+  });
+
+  await recordAuditLog({
+    action: "payment.status_updated",
+    entityId: updated.id,
+    entityType: "payment",
+    summary: `Payment ${updated.referenceNumber} transitioned to ${event.status} via webhook`,
+    detail: event.providerPaymentId,
   });
 
   return toPublicPayment(updated);

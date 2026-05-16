@@ -47,7 +47,7 @@ function toPublicLgu(record: Lgu): PublicLgu {
 function buildLguWhere(input: ListLgusInput): Prisma.LguWhereInput {
   const clauses: Prisma.LguWhereInput[] = [{ archivedAt: null }];
 
-  if (input.jurisdictionScope.accessScope === "assigned") {
+  if (input.jurisdictionScope.accessScope !== "global") {
     clauses.push({
       id: {
         in: input.jurisdictionScope.lguIds,

@@ -81,6 +81,7 @@ describe("Office routes", () => {
     expect(mockOfficeCount).toHaveBeenCalledWith({
       where: {
         AND: [
+          { archivedAt: null },
           {
             id: {
               in: ["22222222-2222-4222-8222-222222222222"],
@@ -98,6 +99,7 @@ describe("Office routes", () => {
       take: 10,
       where: {
         AND: [
+          { archivedAt: null },
           {
             id: {
               in: ["22222222-2222-4222-8222-222222222222"],

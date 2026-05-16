@@ -36,6 +36,7 @@ export interface CreatePublicIssueReportInput {
   reporterName?: string;
   reporterEmail?: string;
   reporterPhone?: string;
+  reporterUserId?: string;
   location?: {
     latitude: number;
     longitude: number;
@@ -164,6 +165,7 @@ export async function createPublicIssueReport(
       reporterEmail: input.reporterEmail?.trim() || null,
       reporterName: input.reporterName?.trim() || null,
       reporterPhone: input.reporterPhone?.trim() || null,
+      reporterUserId: input.reporterUserId ?? null,
       subject: input.subject.trim(),
     },
   });
@@ -202,4 +204,37 @@ export async function getPublicIssueReportByNumber(input: {
   }
 
   return toPublicIssueReport(record);
+}
+
+export interface ListOwnIssueReportsInput {
+  reporterUserId: string;
+  limit: number;
+  page: number;
+  skip: number;
+}
+
+export async function listOwnIssueReports(
+  input: ListOwnIssueReportsInput,
+): Promise<{
+  data: PublicIssueReport[];
+  meta: { limit: number; page: number; total: number };
+}> {
+  const where: Prisma.IssueReportWhereInput = {
+    reporterUserId: input.reporterUserId,
+  };
+
+  const [total, records] = await Promise.all([
+    prisma.issueReport.count({ where }),
+    prisma.issueReport.findMany({
+      orderBy: { createdAt: "desc" },
+      skip: input.skip,
+      take: input.limit,
+      where,
+    }),
+  ]);
+
+  return {
+    data: records.map(toPublicIssueReport),
+    meta: { limit: input.limit, page: input.page, total },
+  };
 }

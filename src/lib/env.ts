@@ -3,12 +3,15 @@ const DEFAULT_JWT_EXPIRES_IN = "15m";
 const DEFAULT_JWT_REFRESH_EXPIRES_IN = "7d";
 const DEFAULT_BCRYPT_SALT_ROUNDS = 10;
 const DEFAULT_PUBLIC_API_URL = "http://localhost:4000";
+const DEFAULT_AUDIT_LOG_RETENTION_DAYS = 365;
+const DEFAULT_NOTIFICATION_RETENTION_DAYS = 90;
 
 export type StorageProvider = "local" | "supabase";
 export type AuthProvider = "local-jwt" | "supabase";
 export type PaymentProvider = "local" | "paymongo";
 
 export interface AppEnv {
+  auditLogRetentionDays: number;
   authProvider: AuthProvider;
   bcryptSaltRounds: number;
   databaseUrl: string;
@@ -16,12 +19,14 @@ export interface AppEnv {
   jwtRefreshExpiresIn: string;
   jwtSecret: string;
   nodeEnv: string;
+  notificationRetentionDays: number;
   paymentProvider: PaymentProvider;
   paymongoSecretKey?: string;
   paymongoWebhookSecret?: string;
   uploadsDir: string;
   port: number;
   publicApiUrl: string;
+  sentryDsn?: string;
   supabaseAnonKey?: string;
   storageProvider: StorageProvider;
   supabaseServiceRoleKey?: string;
@@ -126,6 +131,11 @@ export function loadEnv(): AppEnv {
   const port = parsePositiveInteger(process.env.PORT, DEFAULT_PORT, "PORT");
 
   return {
+    auditLogRetentionDays: parsePositiveInteger(
+      process.env.AUDIT_LOG_RETENTION_DAYS,
+      DEFAULT_AUDIT_LOG_RETENTION_DAYS,
+      "AUDIT_LOG_RETENTION_DAYS",
+    ),
     authProvider: parseAuthProvider(process.env.AUTH_PROVIDER),
     bcryptSaltRounds: parsePositiveInteger(
       process.env.BCRYPT_SALT_ROUNDS,
@@ -145,6 +155,11 @@ export function loadEnv(): AppEnv {
     ),
     jwtSecret: requireEnv("JWT_SECRET"),
     nodeEnv: process.env.NODE_ENV?.trim() || "development",
+    notificationRetentionDays: parsePositiveInteger(
+      process.env.NOTIFICATION_RETENTION_DAYS,
+      DEFAULT_NOTIFICATION_RETENTION_DAYS,
+      "NOTIFICATION_RETENTION_DAYS",
+    ),
     paymentProvider: parsePaymentProvider(process.env.PAYMENT_PROVIDER),
     paymongoSecretKey: process.env.PAYMONGO_SECRET_KEY?.trim() || undefined,
     paymongoWebhookSecret:
@@ -154,6 +169,7 @@ export function loadEnv(): AppEnv {
     publicApiUrl:
       parseOptionalUrl(process.env.PUBLIC_API_URL, "PUBLIC_API_URL") ??
       DEFAULT_PUBLIC_API_URL.replace("4000", String(port)),
+    sentryDsn: process.env.SENTRY_DSN?.trim() || undefined,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY?.trim() || undefined,
     storageProvider: parseStorageProvider(process.env.STORAGE_PROVIDER),
     supabaseServiceRoleKey:

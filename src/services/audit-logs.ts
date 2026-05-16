@@ -9,13 +9,16 @@ export interface PublicAuditLog {
     | "attachment.uploaded"
     | "auth.bootstrap_admin"
     | "auth.login"
+    | "auth.register"
     | "auth.session_revoked"
     | "finding.created"
     | "finding.resolved"
     | "inspection.assigned"
     | "inspection.checklist_result_recorded"
     | "inspection.created"
-    | "inspection.status_updated";
+    | "inspection.status_updated"
+    | "payment.status_updated"
+    | "reinspection.requested";
   actor?: {
     email: string;
     id: string;
@@ -30,6 +33,7 @@ export interface PublicAuditLog {
     | "checklist_result"
     | "finding"
     | "inspection"
+    | "payment"
     | "user";
   id: string;
   summary: string;

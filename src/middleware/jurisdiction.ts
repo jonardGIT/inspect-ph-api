@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import type { UserRole } from "../types/auth.js";
 
 export interface JurisdictionScope {
-  accessScope: "assigned" | "global";
+  accessScope: "assigned" | "office" | "lgu" | "global";
   lguIds: string[];
   officeIds: string[];
 }
@@ -47,9 +47,13 @@ export async function resolveJurisdictionScope(input: {
 
   return {
     accessScope:
-      input.role === "admin" || input.role === "lgu_admin"
+      input.role === "admin"
         ? "global"
-        : "assigned",
+        : input.role === "lgu_admin"
+          ? "lgu"
+          : input.role === "office_supervisor" || input.role === "office_clerk"
+            ? "office"
+            : "assigned",
     lguIds,
     officeIds,
   };

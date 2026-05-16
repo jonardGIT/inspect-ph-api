@@ -6,11 +6,15 @@ const mockPaymentFindMany = jest.fn();
 const mockPaymentFindUnique = jest.fn();
 const mockPaymentUpdate = jest.fn();
 const mockPermitFindUnique = jest.fn();
+const mockAuditLogCreate = jest.fn();
 const mockCreateCheckoutSession = jest.fn();
 const mockParseWebhookEvent = jest.fn();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
+    auditLog: {
+      create: mockAuditLogCreate,
+    },
     paymentRecord: {
       count: mockPaymentCount,
       create: mockPaymentCreate,
@@ -41,6 +45,7 @@ describe("Payment routes", () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
     process.env.JWT_REFRESH_EXPIRES_IN = "7d";
+    mockAuditLogCreate.mockResolvedValue({ id: "audit-1" });
   });
 
   it("lists payments for authenticated admins", async () => {

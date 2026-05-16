@@ -431,10 +431,19 @@ function buildScopedInspectionClauses(input: {
     clauses.push({ inspectorId: input.actorUserId });
   }
 
-  if (input.jurisdictionScope.accessScope === "assigned") {
+  const { accessScope, officeIds, lguIds } = input.jurisdictionScope;
+  if (accessScope === "office" || accessScope === "assigned") {
     clauses.push({
       officeId: {
-        in: input.jurisdictionScope.officeIds,
+        in: officeIds,
+      },
+    });
+  } else if (accessScope === "lgu") {
+    clauses.push({
+      office: {
+        lguId: {
+          in: lguIds,
+        },
       },
     });
   }
@@ -1757,4 +1766,60 @@ export async function createAttachmentDownloadIntent(input: {
     mimeType: attachment.mimeType,
     storageKey: attachment.storageKey,
   });
+}
+
+export interface RequestReinspectionInput {
+  actorRole: AuthRole;
+  actorUserId: string;
+  inspectionId: string;
+  reason?: string;
+}
+
+export async function requestReinspection(
+  input: RequestReinspectionInput,
+): Promise<{ inspectionId: string }> {
+  const inspection = await prisma.inspection.findUnique({
+    where: { id: input.inspectionId },
+    select: {
+      id: true,
+      status: true,
+      business: { select: { ownerUsers: { select: { id: true } } } },
+    },
+  });
+
+  if (!inspection) {
+    throw new AppError(404, "INSPECTION_NOT_FOUND", "Inspection not found");
+  }
+
+  const isOwner = inspection.business.ownerUsers.some(
+    (u) => u.id === input.actorUserId,
+  );
+
+  if (!isOwner) {
+    throw new AppError(
+      403,
+      "FORBIDDEN",
+      "You do not have access to this inspection",
+    );
+  }
+
+  if (inspection.status !== "COMPLETED") {
+    throw new AppError(
+      400,
+      "INSPECTION_NOT_COMPLETED",
+      "Reinspection can only be requested for completed inspections",
+    );
+  }
+
+  await recordAuditLog({
+    action: "reinspection.requested",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    detail: input.reason?.trim() || undefined,
+    entityId: input.inspectionId,
+    entityType: "inspection",
+    summary: "Business owner requested a reinspection",
+  });
+
+  return { inspectionId: input.inspectionId };
 }

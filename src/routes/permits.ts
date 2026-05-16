@@ -9,9 +9,11 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { requireJurisdiction } from "../middleware/jurisdiction.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
+  archivePermit,
   createPermit,
   getPublicPermitFindingsByNumber,
   getPublicPermitByNumber,
+  listOwnPermits,
   listPermits,
 } from "../services/permits.js";
 import { ADMIN_ROLES } from "../types/auth.js";
@@ -89,6 +91,35 @@ router.get(
     });
 
     response.json({ data: permit });
+  }),
+);
+
+router.get(
+  "/mine",
+  authenticate,
+  authorize("business_owner"),
+  [
+    query("page").optional().isInt({ min: 1 }).toInt(),
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    query("status").optional().isString().trim(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const { page, limit, skip } = parsePaginationQuery(request.query);
+    const rawStatus =
+      typeof request.query.status === "string"
+        ? parsePermitStatus(request.query.status)
+        : undefined;
+
+    const result = await listOwnPermits({
+      limit,
+      page,
+      skip,
+      status: rawStatus,
+      userId: request.auth!.sub,
+    });
+
+    response.json({ data: result.data, meta: createListMeta(result.meta.total, result.meta.page, result.meta.limit) });
   }),
 );
 
@@ -186,6 +217,18 @@ router.post(
     });
 
     response.status(201).json({ data: permit });
+  }),
+);
+
+router.patch(
+  "/:id/archive",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  param("id").isUUID().withMessage("id must be a valid UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const permit = await archivePermit(request.params["id"] as string);
+    response.json({ data: permit });
   }),
 );
 

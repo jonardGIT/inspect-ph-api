@@ -64,3 +64,37 @@ export function authorize(...roles: UserRole[]): RequestHandler {
     }
   };
 }
+
+export const optionalAuthenticate: RequestHandler = async (
+  request,
+  _response,
+  next,
+) => {
+  try {
+    const authorization = request.header("authorization");
+
+    if (!authorization) {
+      return next();
+    }
+
+    const [scheme, token] = authorization.split(" ");
+
+    if (scheme !== "Bearer" || !token) {
+      return next();
+    }
+
+    request.auth = await getAuthProvider().verifyAccessToken(token);
+
+    if (request.auth.sid) {
+      await assertAuthSessionActive({
+        sessionId: request.auth.sid,
+        userId: request.auth.sub,
+      });
+    }
+
+    next();
+  } catch {
+    // silently ignore auth errors on optional routes
+    next();
+  }
+};

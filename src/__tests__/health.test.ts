@@ -12,7 +12,7 @@ describe("GET /api/v1/health", () => {
     const response = await request(app).get("/api/v1/health");
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ data: { status: "healthy" } });
+    expect(response.body).toEqual({ data: { status: "healthy", db: "ok" } });
   });
 
   it("rate limits repeated health checks from the same client", async () => {

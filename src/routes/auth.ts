@@ -13,6 +13,7 @@ import {
   listUsers,
   login,
   refreshSession,
+  registerUser,
   updateExpoPushToken,
 } from "../services/auth.js";
 import {
@@ -309,6 +310,48 @@ router.post(
     await updateExpoPushToken(request.auth.sub, String(request.body.token));
 
     response.status(204).send();
+  }),
+);
+
+// Public self-registration for business_owner and citizen accounts
+const registerRateLimiter = createRateLimitMiddleware({
+  keyPrefix: "auth-register",
+  limit: 5,
+  windowMs: 60_000,
+});
+
+router.post(
+  "/register",
+  registerRateLimiter,
+  [
+    emailValidator,
+    body("name").isString().trim().notEmpty().withMessage("Name is required"),
+    passwordValidator,
+    body("role")
+      .isIn(["business_owner", "citizen"])
+      .withMessage("role must be business_owner or citizen"),
+    body("businessId")
+      .optional()
+      .isUUID()
+      .withMessage("businessId must be a valid UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const result = await registerUser(
+      {
+        email: String(request.body.email),
+        name: String(request.body.name),
+        password: String(request.body.password),
+        role: String(request.body.role) as "business_owner" | "citizen",
+        businessId:
+          typeof request.body.businessId === "string"
+            ? request.body.businessId
+            : undefined,
+      },
+      getRequestSessionContext(request),
+    );
+
+    response.status(201).json({ data: result });
   }),
 );
 

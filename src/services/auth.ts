@@ -45,6 +45,7 @@ interface PublicUser {
   email: string;
   id: string;
   lguId?: string;
+  businessId?: string;
   name: string;
   officeIds: string[];
   role: AuthRole;
@@ -93,6 +94,7 @@ function toPublicUser(user: UserWithScope): PublicUser {
     email: user.email,
     id: user.id,
     lguId: user.lguId ?? undefined,
+    businessId: user.businessId ?? undefined,
     name: user.name,
     officeIds: user.officeAssignments.map((assignment) => assignment.officeId),
     role,
@@ -344,4 +346,78 @@ export async function updateExpoPushToken(
     where: { id: userId },
     data: { expoPushToken: token },
   });
+}
+
+export interface RegisterUserInput {
+  email: string;
+  name: string;
+  password: string;
+  role: "business_owner" | "citizen";
+  /** Required when role is business_owner */
+  businessId?: string;
+}
+
+export async function registerUser(
+  input: RegisterUserInput,
+  sessionContext?: { ipAddress?: string; userAgent?: string },
+): Promise<AuthResult> {
+  const email = input.email.trim().toLowerCase();
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+
+  if (existing) {
+    throw new AppError(409, "EMAIL_ALREADY_REGISTERED", "Email is already registered");
+  }
+
+  if (input.role === "business_owner") {
+    if (!input.businessId) {
+      throw new AppError(400, "BUSINESS_ID_REQUIRED", "businessId is required for business_owner registration");
+    }
+
+    const business = await prisma.businessEstablishment.findUnique({
+      where: { id: input.businessId },
+    });
+
+    if (!business) {
+      throw new AppError(404, "BUSINESS_NOT_FOUND", "Business not found");
+    }
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      email,
+      name: input.name.trim(),
+      passwordHash: await hashPassword(input.password),
+      role: input.role === "business_owner" ? "BUSINESS_OWNER" : "CITIZEN",
+      ...(input.role === "business_owner" && input.businessId
+        ? { businessId: input.businessId }
+        : {}),
+    },
+    include: {
+      officeAssignments: {
+        select: { officeId: true },
+      },
+    },
+  });
+
+  await recordAuditLog({
+    action: "auth.register",
+    actorRole: input.role,
+    actorUserId: user.id,
+    entityId: user.id,
+    entityType: "user",
+    summary: `Registered ${input.role} account for ${user.email}`,
+  });
+
+  return {
+    tokens: (
+      await issueAuthSessionTokens({
+        ipAddress: sessionContext?.ipAddress,
+        userAgent: sessionContext?.userAgent,
+        userId: user.id,
+        userRole: mapUserRole(user.role),
+      })
+    ).tokens,
+    user: toPublicUser(user),
+  };
 }

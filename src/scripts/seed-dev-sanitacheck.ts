@@ -170,10 +170,67 @@ async function main() {
     },
   });
 
+  const CHECKLIST_ITEMS = [
+    {
+      code: "SANITA-001",
+      description:
+        "Food handlers must present valid health certificates and follow personal hygiene protocols.",
+      sortOrder: 1,
+      title: "Food handler health certificates and hygiene",
+    },
+    {
+      code: "SANITA-002",
+      description:
+        "Premises, equipment, and utensils must be clean and free from contamination risks.",
+      sortOrder: 2,
+      title: "Premises and equipment cleanliness",
+    },
+    {
+      code: "SANITA-003",
+      description:
+        "Solid and liquid waste must be properly segregated, stored, and disposed of per LGU ordinance.",
+      sortOrder: 3,
+      title: "Waste segregation and disposal",
+    },
+    {
+      code: "SANITA-004",
+      description:
+        "Potable water supply must be properly tested, stored, and protected from contamination.",
+      sortOrder: 4,
+      title: "Water safety and potability",
+    },
+    {
+      code: "SANITA-005",
+      description:
+        "Pest control measures must be documented and evidence of vectors or infestations absent.",
+      sortOrder: 5,
+      title: "Pest control and vector-free premises",
+    },
+  ];
+
+  for (const item of CHECKLIST_ITEMS) {
+    await prisma.checklistTemplate.upsert({
+      where: { code: item.code },
+      update: {
+        description: item.description,
+        isActive: true,
+        module: "SANITA",
+        sortOrder: item.sortOrder,
+        title: item.title,
+      },
+      create: {
+        code: item.code,
+        description: item.description,
+        isActive: true,
+        module: "SANITA",
+        sortOrder: item.sortOrder,
+        title: item.title,
+      },
+    });
+  }
+
   console.log(
     JSON.stringify(
-      {
-        business: {
           id: business.id,
           name: business.businessName,
         },

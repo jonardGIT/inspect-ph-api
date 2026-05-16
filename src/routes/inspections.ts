@@ -31,6 +31,7 @@ import {
   listFindings,
   listInspections,
   listInspectionChecklistResults,
+  requestReinspection,
   resolveFinding,
   upsertInspectionChecklistResult,
   updateInspectionStatus,
@@ -949,6 +950,30 @@ router.patch(
     });
 
     response.json({ data: finding });
+  }),
+);
+
+router.post(
+  "/:id/reinspection-request",
+  authenticate,
+  authorize("business_owner"),
+  [
+    param("id").isUUID().withMessage("id must be a valid UUID"),
+    body("reason").optional().isString().trim(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const result = await requestReinspection({
+      actorRole: request.auth!.role,
+      actorUserId: request.auth!.sub,
+      inspectionId: String(request.params.id),
+      reason:
+        typeof request.body.reason === "string"
+          ? request.body.reason
+          : undefined,
+    });
+
+    response.status(202).json({ data: result });
   }),
 );
 

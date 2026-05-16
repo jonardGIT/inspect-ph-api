@@ -14,6 +14,7 @@ import {
   getFireSafetyCertificateByInspection,
   getPublicFireSafetyCertificateByNumber,
   listFireSafetyCertificates,
+  listOwnCertificates,
 } from "../services/fire-safety-certificates.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -62,6 +63,29 @@ router.get(
     });
 
     response.json({ data: certificate });
+  }),
+);
+
+router.get(
+  "/mine",
+  authenticate,
+  authorize("business_owner"),
+  [
+    query("page").optional().isInt({ min: 1 }).toInt(),
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const { page, limit, skip } = parsePaginationQuery(request.query);
+
+    const result = await listOwnCertificates({
+      limit,
+      page,
+      skip,
+      userId: request.auth!.sub,
+    });
+
+    response.json({ data: result.data, meta: createListMeta(result.meta.total, result.meta.page, result.meta.limit) });
   }),
 );
 

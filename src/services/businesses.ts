@@ -1,5 +1,6 @@
 import type { BusinessEstablishment, Prisma } from "@prisma/client";
 
+import { AppError } from "../lib/errors.js";
 import type { JurisdictionScope } from "../middleware/jurisdiction.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -60,12 +61,25 @@ function toPublicBusiness(record: BusinessEstablishment): PublicBusiness {
 function buildBusinessWhere(input: ListBusinessesInput) {
   const clauses: Prisma.BusinessEstablishmentWhereInput[] = [];
 
-  if (input.jurisdictionScope.accessScope === "assigned") {
+  const { accessScope, officeIds, lguIds } = input.jurisdictionScope;
+  if (accessScope === "office" || accessScope === "assigned") {
     clauses.push({
       inspections: {
         some: {
           officeId: {
-            in: input.jurisdictionScope.officeIds,
+            in: officeIds,
+          },
+        },
+      },
+    });
+  } else if (accessScope === "lgu") {
+    clauses.push({
+      inspections: {
+        some: {
+          office: {
+            lguId: {
+              in: lguIds,
+            },
           },
         },
       },
@@ -147,4 +161,25 @@ export async function createBusiness(
   });
 
   return toPublicBusiness(business);
+}
+
+export async function archiveBusiness(id: string): Promise<PublicBusiness> {
+  const record = await prisma.businessEstablishment.findUnique({
+    where: { id },
+  });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Business not found");
+  }
+
+  if (record.archivedAt) {
+    throw new AppError(409, "CONFLICT", "Business is already archived");
+  }
+
+  const updated = await prisma.businessEstablishment.update({
+    data: { archivedAt: new Date() },
+    where: { id },
+  });
+
+  return toPublicBusiness(updated);
 }

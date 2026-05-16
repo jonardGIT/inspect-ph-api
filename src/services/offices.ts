@@ -45,10 +45,17 @@ function toPublicOffice(record: Office): PublicOffice {
 function buildOfficeWhere(input: ListOfficesInput): Prisma.OfficeWhereInput {
   const clauses: Prisma.OfficeWhereInput[] = [{ archivedAt: null }];
 
-  if (input.jurisdictionScope.accessScope === "assigned") {
+  const { accessScope, officeIds, lguIds } = input.jurisdictionScope;
+  if (accessScope === "office" || accessScope === "assigned") {
     clauses.push({
       id: {
-        in: input.jurisdictionScope.officeIds,
+        in: officeIds,
+      },
+    });
+  } else if (accessScope === "lgu") {
+    clauses.push({
+      lguId: {
+        in: lguIds,
       },
     });
   }

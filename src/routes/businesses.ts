@@ -1,12 +1,16 @@
 import { Router } from "express";
-import { body, query } from "express-validator";
+import { body, param, query } from "express-validator";
 
 import { asyncHandler } from "../lib/async-handler.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { requireJurisdiction } from "../middleware/jurisdiction.js";
-import { createBusiness, listBusinesses } from "../services/businesses.js";
+import {
+  archiveBusiness,
+  createBusiness,
+  listBusinesses,
+} from "../services/businesses.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
 const router = Router();
@@ -128,6 +132,18 @@ router.post(
     });
 
     response.status(201).json({ data: business });
+  }),
+);
+
+router.patch(
+  "/:id/archive",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  param("id").isUUID().withMessage("id must be a valid UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const business = await archiveBusiness(request.params["id"] as string);
+    response.json({ data: business });
   }),
 );
 

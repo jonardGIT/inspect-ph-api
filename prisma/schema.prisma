@@ -17,15 +17,19 @@ model User {
   createdAt                 DateTime               @default(now())
   updatedAt                 DateTime               @updatedAt
   lguId                     String?
+  businessId                String?
   auditLogs                 AuditLog[]
   authSessions              AuthSession[]
   assignedInspections       Inspection[]           @relation("InspectionInspector")
   notificationOutboxEntries NotificationOutbox[]
   createdPermitRecords      PermitRecord[]         @relation("PermitRecordCreator")
+  ownedIssueReports         IssueReport[]          @relation("IssueReportReporter")
   lgu                       Lgu?                   @relation(fields: [lguId], references: [id])
+  business                  BusinessEstablishment? @relation("BusinessOwner", fields: [businessId], references: [id])
   officeAssignments         UserOfficeAssignment[]
 
   @@index([lguId])
+  @@index([businessId])
 }
 
 model Lgu {
@@ -183,6 +187,7 @@ model BusinessEstablishment {
   updatedAt               DateTime       @updatedAt
   archivedAt              DateTime?
   inspections             Inspection[]
+  ownerUsers              User[]         @relation("BusinessOwner")
   permitRecords           PermitRecord[]
 
   @@index([businessName])
@@ -266,6 +271,7 @@ model FireSafetyCertificate {
 model IssueReport {
   id                     String              @id @default(uuid())
   reportNumber           String              @unique
+  reporterUserId         String?
   category               IssueReportCategory
   subject                String
   description            String
@@ -279,10 +285,12 @@ model IssueReport {
   status                 IssueReportStatus   @default(SUBMITTED)
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
+  reporterUser           User?               @relation("IssueReportReporter", fields: [reporterUserId], references: [id])
 
   @@index([category])
   @@index([status])
   @@index([createdAt])
+  @@index([reporterUserId])
 }
 
 model PaymentRecord {
@@ -393,6 +401,8 @@ enum UserRole {
   LGU_ADMIN
   OFFICE_SUPERVISOR
   OFFICE_CLERK
+  BUSINESS_OWNER
+  CITIZEN
 }
 
 enum PermitStatus {

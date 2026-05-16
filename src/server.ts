@@ -1,8 +1,12 @@
 import app, { validateAppStartup } from "./app.js";
+import { initSentry } from "./lib/sentry.js";
+import { runDataRetention } from "./scripts/run-data-retention.js";
 import { runNotificationDelivery } from "./scripts/run-notification-delivery.js";
 import { runStatusSweep } from "./scripts/run-status-sweep.js";
 
 const env = validateAppStartup();
+
+initSentry(env.sentryDsn);
 
 const port = env.port;
 
@@ -21,6 +25,23 @@ setInterval(() => {
     console.error("Scheduled notification delivery failed:", err);
   });
 }, DELIVERY_INTERVAL_MS);
+
+// Run data retention weekly (every 7 days)
+const RETENTION_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+setInterval(() => {
+  runDataRetention({
+    auditLogRetentionDays: env.auditLogRetentionDays,
+    notificationRetentionDays: env.notificationRetentionDays,
+  })
+    .then((result) => {
+      console.log(
+        `Data retention complete: ${result.auditLogsDeleted} audit logs, ${result.notificationsDeleted} notifications deleted`,
+      );
+    })
+    .catch((err) => {
+      console.error("Scheduled data retention failed:", err);
+    });
+}, RETENTION_INTERVAL_MS);
 
 app.listen(port, () => {
   console.log(`inspect-ph-api listening on port ${port}`);

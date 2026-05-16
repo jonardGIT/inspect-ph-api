@@ -42,8 +42,12 @@ export interface PublicPermit {
 export interface PublicPermitLookup {
   applicationDate: string;
   business: {
+    addressLine: string | null;
     businessName: string;
+    city: string | null;
+    contactNumber: string | null;
     id: string;
+    ownerName: string | null;
   };
   createdAt: string;
   expirationDate: string;
@@ -75,6 +79,21 @@ type PermitRecordWithBusiness = Prisma.PermitRecordGetPayload<{
   };
 }>;
 
+type PermitRecordWithBusinessContact = Prisma.PermitRecordGetPayload<{
+  include: {
+    business: {
+      select: {
+        addressLine: true;
+        businessName: true;
+        city: true;
+        contactNumber: true;
+        id: true;
+        ownerName: true;
+      };
+    };
+  };
+}>;
+
 function toPublicPermit(record: PermitRecordWithBusiness): PublicPermit {
   return {
     applicationDate: record.applicationDate.toISOString(),
@@ -94,12 +113,18 @@ function toPublicPermit(record: PermitRecordWithBusiness): PublicPermit {
   };
 }
 
-function toPublicPermitLookup(record: PermitRecordWithBusiness): PublicPermitLookup {
+function toPublicPermitLookup(
+  record: PermitRecordWithBusinessContact,
+): PublicPermitLookup {
   return {
     applicationDate: record.applicationDate.toISOString(),
     business: {
+      addressLine: record.business.addressLine,
       businessName: record.business.businessName,
+      city: record.business.city,
+      contactNumber: record.business.contactNumber,
       id: record.business.id,
+      ownerName: record.business.ownerName,
     },
     createdAt: record.createdAt.toISOString(),
     expirationDate: record.expirationDate.toISOString(),
@@ -112,26 +137,39 @@ function toPublicPermitLookup(record: PermitRecordWithBusiness): PublicPermitLoo
 }
 
 function buildPermitWhere(input: ListPermitsInput) {
-  return {
-    ...(input.jurisdictionScope.accessScope === "assigned"
+  const { accessScope, officeIds, lguIds } = input.jurisdictionScope;
+  const scopeFilter =
+    accessScope === "office" || accessScope === "assigned"
       ? {
           inspections: {
             some: {
               officeId: {
-                in: input.jurisdictionScope.officeIds,
+                in: officeIds,
               },
             },
           },
         }
-      : {}),
+      : accessScope === "lgu"
+        ? {
+            inspections: {
+              some: {
+                office: {
+                  lguId: {
+                    in: lguIds,
+                  },
+                },
+              },
+            },
+          }
+        : {};
+  return {
+    ...scopeFilter,
     ...(input.businessId ? { businessId: input.businessId } : {}),
     ...(input.status ? { status: input.status } : {}),
   };
 }
 
-export async function listPermits(
-  input: ListPermitsInput,
-): Promise<{
+export async function listPermits(input: ListPermitsInput): Promise<{
   data: PublicPermit[];
   meta: { limit: number; page: number; total: number };
 }> {
@@ -211,8 +249,12 @@ export async function getPublicPermitByNumber(input: {
     include: {
       business: {
         select: {
+          addressLine: true,
           businessName: true,
+          city: true,
+          contactNumber: true,
           id: true,
+          ownerName: true,
         },
       },
     },
@@ -233,8 +275,12 @@ export async function getPublicPermitFindingsByNumber(input: {
     include: {
       business: {
         select: {
+          addressLine: true,
           businessName: true,
+          city: true,
+          contactNumber: true,
           id: true,
+          ownerName: true,
         },
       },
     },
@@ -272,4 +318,72 @@ export async function getPublicPermitFindingsByNumber(input: {
       : undefined,
     permit: toPublicPermitLookup(permit),
   };
+}
+
+export interface ListOwnPermitsInput {
+  userId: string;
+  limit: number;
+  page: number;
+  skip: number;
+  status?: PermitRecord["status"];
+}
+
+export async function listOwnPermits(input: ListOwnPermitsInput): Promise<{
+  data: PublicPermit[];
+  meta: { limit: number; page: number; total: number };
+}> {
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { businessId: true },
+  });
+
+  if (!user?.businessId) {
+    return { data: [], meta: { limit: input.limit, page: input.page, total: 0 } };
+  }
+
+  const where: Prisma.PermitRecordWhereInput = {
+    businessId: user.businessId,
+    ...(input.status ? { status: input.status } : {}),
+  };
+
+  const [total, permits] = await Promise.all([
+    prisma.permitRecord.count({ where }),
+    prisma.permitRecord.findMany({
+      include: {
+        business: { select: { businessName: true, id: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: input.skip,
+      take: input.limit,
+      where,
+    }),
+  ]);
+
+  return {
+    data: permits.map(toPublicPermit),
+    meta: { limit: input.limit, page: input.page, total },
+  };
+}
+
+export async function archivePermit(id: string): Promise<PublicPermit> {
+  const record = await prisma.permitRecord.findUnique({
+    include: { business: { select: { businessName: true, id: true } } },
+    where: { id },
+  });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Permit not found");
+  }
+
+  if (record.archivedAt) {
+    throw new AppError(409, "CONFLICT", "Permit is already archived");
+  }
+
+  const updated = await prisma.permitRecord.update({
+    data: { archivedAt: new Date() },
+    include: { business: { select: { businessName: true, id: true } } },
+    where: { id },
+  });
+
+  return toPublicPermit(updated);
 }

@@ -81,6 +81,7 @@ describe("LGU routes", () => {
     expect(mockLguCount).toHaveBeenCalledWith({
       where: {
         AND: [
+          { archivedAt: null },
           {
             id: {
               in: ["11111111-1111-4111-8111-111111111111"],
@@ -105,6 +106,7 @@ describe("LGU routes", () => {
       take: 10,
       where: {
         AND: [
+          { archivedAt: null },
           {
             id: {
               in: ["11111111-1111-4111-8111-111111111111"],

@@ -4,11 +4,13 @@ export const USER_ROLES = [
   "lgu_admin",
   "office_supervisor",
   "office_clerk",
+  "business_owner",
+  "citizen",
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
 
-export type AccessScope = "assigned" | "office" | "lgu" | "global";
+export type AccessScope = "assigned" | "office" | "lgu" | "global" | "own";
 
 export interface RoleProfile {
   label: string;
@@ -102,6 +104,25 @@ export const ROLE_PROFILES: Record<UserRole, RoleProfile> = {
       "inspection:update:assigned",
     ],
     scope: "assigned",
+  },
+  business_owner: {
+    label: "Business Owner",
+    permissions: [
+      "permit:read:own",
+      "finding:read:own",
+      "certificate:read:own",
+      "payment:read:own",
+      "reinspection:request",
+    ],
+    scope: "own",
+  },
+  citizen: {
+    label: "Citizen",
+    permissions: [
+      "issue_report:create",
+      "issue_report:read:own",
+    ],
+    scope: "own",
   },
 };
 

@@ -1,5 +1,6 @@
 import type { Module, Prisma } from "@prisma/client";
 
+import { AppError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 
 export interface CreateModuleInput {
@@ -18,6 +19,7 @@ export interface ListModulesInput {
 }
 
 export interface PublicModule {
+  archivedAt?: string;
   code: string;
   createdAt: string;
   description?: string;
@@ -29,6 +31,7 @@ export interface PublicModule {
 
 function toPublicModule(record: Module): PublicModule {
   return {
+    archivedAt: record.archivedAt?.toISOString(),
     code: record.code,
     createdAt: record.createdAt.toISOString(),
     description: record.description ?? undefined,
@@ -81,6 +84,35 @@ export async function listModules(input: ListModulesInput): Promise<{
     data: modules.map(toPublicModule),
     meta: { limit: input.limit, page: input.page, total },
   };
+}
+
+export async function getModule(id: string): Promise<PublicModule> {
+  const record = await prisma.module.findUnique({ where: { id } });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Module not found");
+  }
+
+  return toPublicModule(record);
+}
+
+export async function archiveModule(id: string): Promise<PublicModule> {
+  const record = await prisma.module.findUnique({ where: { id } });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Module not found");
+  }
+
+  if (record.archivedAt) {
+    throw new AppError(409, "CONFLICT", "Module is already archived");
+  }
+
+  const updated = await prisma.module.update({
+    data: { archivedAt: new Date(), isActive: false },
+    where: { id },
+  });
+
+  return toPublicModule(updated);
 }
 
 export async function createModule(

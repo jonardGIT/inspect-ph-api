@@ -6,10 +6,15 @@ const mockCertificateFindFirst = jest.fn();
 const mockCertificateFindMany = jest.fn();
 const mockCertificateFindUnique = jest.fn();
 const mockInspectionFindUnique = jest.fn();
+const mockOfficeModuleFindFirst = jest.fn();
+const mockAuditLogCreate = jest.fn();
 const mockUserFindUnique = jest.fn();
 
 jest.mock("../lib/prisma.js", () => ({
   prisma: {
+    auditLog: {
+      create: mockAuditLogCreate,
+    },
     fireSafetyCertificate: {
       count: mockCertificateCount,
       create: mockCertificateCreate,
@@ -19,6 +24,9 @@ jest.mock("../lib/prisma.js", () => ({
     },
     inspection: {
       findUnique: mockInspectionFindUnique,
+    },
+    officeModule: {
+      findFirst: mockOfficeModuleFindFirst,
     },
     user: {
       findUnique: mockUserFindUnique,
@@ -46,6 +54,8 @@ describe("Fire safety certificate routes", () => {
         },
       ],
     });
+    mockOfficeModuleFindFirst.mockResolvedValue({ id: "office-module-1" });
+    mockAuditLogCreate.mockResolvedValue({ id: "audit-1" });
   });
 
   it("lists scoped fire safety certificates for inspectors", async () => {
@@ -241,7 +251,10 @@ describe("Fire safety certificate routes", () => {
 
     mockInspectionFindUnique.mockResolvedValue({
       id: "62364cb8-8d0c-4185-b648-ee8d4f114594",
+      permitRecordId: "permit-1",
+      status: "COMPLETED",
       office: {
+        code: "FIRE-HQ",
         moduleAssignments: [
           {
             module: {
@@ -251,7 +264,8 @@ describe("Fire safety certificate routes", () => {
         ],
       },
     });
-    mockCertificateFindUnique.mockResolvedValue(null);
+    mockCertificateFindFirst.mockResolvedValue(null);
+    mockCertificateCount.mockResolvedValue(1);
     mockCertificateCreate.mockResolvedValue({
       certificateNumber: "FSIC-DEV-2026-0002",
       createdAt: issuedAt,
@@ -302,7 +316,7 @@ describe("Fire safety certificate routes", () => {
     expect(response.body.data.certificateNumber).toBe("FSIC-DEV-2026-0002");
     expect(mockCertificateCreate).toHaveBeenCalledWith({
       data: {
-        certificateNumber: "FSIC-DEV-2026-0002",
+        certificateNumber: expect.any(String),
         expiresAt: new Date("2027-05-17T13:30:00.000Z"),
         inspectionId: "62364cb8-8d0c-4185-b648-ee8d4f114594",
         issuedAt: new Date("2026-05-17T13:30:00.000Z"),

@@ -5,6 +5,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 
 import { loadEnv } from "./lib/env.js";
+import { Sentry } from "./lib/sentry.js";
 import { validateStartupEnv } from "./lib/startup-env.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found.js";
@@ -12,6 +13,8 @@ import { createRateLimitMiddleware } from "./middleware/rate-limit.js";
 import auditLogsRouter from "./routes/audit-logs.js";
 import authRouter from "./routes/auth.js";
 import businessesRouter from "./routes/businesses.js";
+import checklistTemplatesRouter from "./routes/checklist-templates.js";
+import docsRouter from "./routes/docs.js";
 import fireSafetyCertificatesRouter from "./routes/fire-safety-certificates.js";
 import healthRouter from "./routes/health.js";
 import inspectionsRouter from "./routes/inspections.js";
@@ -23,6 +26,7 @@ import officeModulesRouter from "./routes/office-modules.js";
 import officesRouter from "./routes/offices.js";
 import paymentsRouter from "./routes/payments.js";
 import permitsRouter from "./routes/permits.js";
+import reportsRouter from "./routes/reports.js";
 import uploadsRouter from "./routes/uploads.js";
 
 const app = express();
@@ -60,8 +64,10 @@ app.get(API_V1, publicEndpointRateLimiter, (_req, res) => {
 });
 
 app.use(`${API_V1}/health`, publicEndpointRateLimiter, healthRouter);
+app.use(`${API_V1}/docs`, docsRouter);
 app.use(`${API_V1}/auth`, authRouter);
 app.use(`${API_V1}/audit-logs`, auditLogsRouter);
+app.use(`${API_V1}/checklist-templates`, checklistTemplatesRouter);
 app.use(`${API_V1}/businesses`, businessesRouter);
 app.use(`${API_V1}/fire-safety-certificates`, fireSafetyCertificatesRouter);
 app.use(`${API_V1}/inspections`, inspectionsRouter);
@@ -73,9 +79,12 @@ app.use(`${API_V1}/office-modules`, officeModulesRouter);
 app.use(`${API_V1}/offices`, officesRouter);
 app.use(`${API_V1}/payments`, paymentsRouter);
 app.use(`${API_V1}/permits`, permitsRouter);
+app.use(`${API_V1}/reports`, reportsRouter);
 app.use(`${API_V1}/uploads`, uploadsRouter);
 
 app.use(notFoundHandler);
+
+Sentry.setupExpressErrorHandler(app);
 
 app.use(errorHandler);
 

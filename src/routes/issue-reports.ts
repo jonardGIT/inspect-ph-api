@@ -5,12 +5,13 @@ import { body, param, query } from "express-validator";
 import { asyncHandler } from "../lib/async-handler.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
-import { authenticate } from "../middleware/auth.js";
+import { authenticate, authorize, optionalAuthenticate } from "../middleware/auth.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
   createPublicIssueReport,
   getPublicIssueReportByNumber,
   listIssueReports,
+  listOwnIssueReports,
   updateIssueReportStatus,
 } from "../services/issue-reports.js";
 import { AppError } from "../lib/errors.js";
@@ -151,6 +152,29 @@ router.get(
   }),
 );
 
+router.get(
+  "/mine",
+  authenticate,
+  authorize("citizen"),
+  [
+    query("page").optional().isInt({ min: 1 }).toInt(),
+    query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const { page, limit, skip } = parsePaginationQuery(request.query);
+
+    const result = await listOwnIssueReports({
+      limit,
+      page,
+      reporterUserId: request.auth!.sub,
+      skip,
+    });
+
+    response.json({ data: result.data, meta: createListMeta(result.meta.total, result.meta.page, result.meta.limit) });
+  }),
+);
+
 router.patch(
   "/:id/status",
   authenticate,
@@ -186,6 +210,7 @@ router.patch(
 router.post(
   "/public",
   publicIssueReportRateLimiter,
+  optionalAuthenticate,
   [
     body("category")
       .isIn([
@@ -251,6 +276,8 @@ router.post(
           ? request.body.reporterPhone
           : undefined,
       subject: String(request.body.subject),
+      reporterUserId:
+        request.auth?.role === "citizen" ? request.auth.sub : undefined,
     });
 
     response.status(201).json({ data: issueReport });

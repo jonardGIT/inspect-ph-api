@@ -176,10 +176,19 @@ function buildScopedInspectionWhere(input: {
     },
   ];
 
-  if (input.jurisdictionScope.accessScope === "assigned") {
+  const { accessScope, officeIds, lguIds } = input.jurisdictionScope;
+  if (accessScope === "office" || accessScope === "assigned") {
     clauses.push({
       officeId: {
-        in: input.jurisdictionScope.officeIds,
+        in: officeIds,
+      },
+    });
+  } else if (accessScope === "lgu") {
+    clauses.push({
+      office: {
+        lguId: {
+          in: lguIds,
+        },
       },
     });
   }
@@ -577,4 +586,59 @@ export async function createFireSafetyCertificate(
   });
 
   return toPublicFireSafetyCertificate(record);
+}
+
+export interface ListOwnCertificatesInput {
+  userId: string;
+  limit: number;
+  page: number;
+  skip: number;
+}
+
+export async function listOwnCertificates(
+  input: ListOwnCertificatesInput,
+): Promise<{
+  data: PublicFireSafetyCertificate[];
+  meta: { limit: number; page: number; total: number };
+}> {
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { businessId: true },
+  });
+
+  if (!user?.businessId) {
+    return { data: [], meta: { limit: input.limit, page: input.page, total: 0 } };
+  }
+
+  const where: Prisma.FireSafetyCertificateWhereInput = {
+    inspection: { businessId: user.businessId },
+  };
+
+  const [total, records] = await Promise.all([
+    prisma.fireSafetyCertificate.count({ where }),
+    prisma.fireSafetyCertificate.findMany({
+      include: {
+        inspection: {
+          select: {
+            business: { select: { businessName: true, id: true } },
+            completedAt: true,
+            id: true,
+            office: { select: { code: true, id: true, lguId: true, name: true } },
+            permitRecord: { select: { id: true, permitNumber: true } },
+            scheduledAt: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { issuedAt: "desc" },
+      skip: input.skip,
+      take: input.limit,
+      where,
+    }),
+  ]);
+
+  return {
+    data: records.map(toPublicFireSafetyCertificate),
+    meta: { limit: input.limit, page: input.page, total },
+  };
 }

@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { body, query } from "express-validator";
+import { body, param, query } from "express-validator";
 
 import { asyncHandler } from "../lib/async-handler.js";
 import { createListMeta, parsePaginationQuery } from "../lib/request.js";
 import { validateRequestMiddleware } from "../lib/validation.js";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { createModule, listModules } from "../services/modules.js";
+import { archiveModule, createModule, listModules } from "../services/modules.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
 const router = Router();
@@ -84,6 +84,21 @@ router.post(
     });
 
     response.status(201).json({ data: module });
+  }),
+);
+
+router.patch(
+  "/:id/archive",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    param("id").isUUID().withMessage("id must be a UUID"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const module = await archiveModule(String(request.params.id));
+
+    response.json({ data: module });
   }),
 );
 
