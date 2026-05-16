@@ -14,6 +14,8 @@ export interface PublicAuditLog {
     | "cap.created"
     | "cap.status_updated"
     | "finding.created"
+    | "finding.dispute_resolved"
+    | "finding.dispute_submitted"
     | "finding.resolved"
     | "inspection.assigned"
     | "inspection.checklist_result_recorded"

@@ -101,3 +101,197 @@ export async function exportInspectionsCsv(
 
   return [CSV_HEADER, ...rows].join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Payment Reconciliation Report
+// ---------------------------------------------------------------------------
+
+export interface PaymentReconciliationByOffice {
+  officeId: string;
+  officeName: string;
+  officeCode: string;
+  lguId: string;
+  paidCount: number;
+  paidAmountInMinor: number;
+  unpaidCount: number;
+  unpaidAmountInMinor: number;
+}
+
+export interface PaymentReconciliationReport {
+  fromDate: string;
+  toDate: string;
+  totalPaidCount: number;
+  totalPaidAmountInMinor: number;
+  totalUnpaidCount: number;
+  totalUnpaidAmountInMinor: number;
+  agingUnpaidCount: number;
+  agingUnpaidAmountInMinor: number;
+  byOffice: PaymentReconciliationByOffice[];
+}
+
+export interface PaymentReconciliationInput {
+  fromDate?: string;
+  toDate?: string;
+  lguId?: string;
+  officeId?: string;
+}
+
+export async function getPaymentReconciliation(
+  input: PaymentReconciliationInput,
+): Promise<PaymentReconciliationReport> {
+  const from = input.fromDate ? new Date(input.fromDate) : new Date(0);
+  const to = input.toDate ? new Date(input.toDate) : new Date();
+
+  // 7-day aging threshold for unpaid
+  const agingThreshold = new Date(to);
+  agingThreshold.setDate(agingThreshold.getDate() - 7);
+
+  const baseWhere: Prisma.PaymentRecordWhereInput = {
+    createdAt: { gte: from, lte: to },
+    ...(input.lguId
+      ? {
+          permitRecord: {
+            inspections: { some: { office: { lguId: input.lguId } } },
+          },
+        }
+      : {}),
+    ...(input.officeId
+      ? {
+          permitRecord: {
+            inspections: { some: { officeId: input.officeId } },
+          },
+        }
+      : {}),
+  };
+
+  const [paidRecords, unpaidRecords] = await Promise.all([
+    prisma.paymentRecord.findMany({
+      where: {
+        ...baseWhere,
+        status: "PAID",
+      },
+      select: {
+        amountInMinor: true,
+        permitRecord: {
+          select: {
+            inspections: {
+              take: 1,
+              select: {
+                office: {
+                  select: { id: true, code: true, name: true, lguId: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.paymentRecord.findMany({
+      where: {
+        ...baseWhere,
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
+      select: {
+        amountInMinor: true,
+        createdAt: true,
+        permitRecord: {
+          select: {
+            inspections: {
+              take: 1,
+              select: {
+                office: {
+                  select: { id: true, code: true, name: true, lguId: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  // Aggregate by office
+  const officeMap = new Map<string, PaymentReconciliationByOffice>();
+
+  function upsertOffice(
+    officeId: string,
+    code: string,
+    name: string,
+    lguId: string,
+  ) {
+    if (!officeMap.has(officeId)) {
+      officeMap.set(officeId, {
+        lguId,
+        officeCode: code,
+        officeId,
+        officeName: name,
+        paidAmountInMinor: 0,
+        paidCount: 0,
+        unpaidAmountInMinor: 0,
+        unpaidCount: 0,
+      });
+    }
+    return officeMap.get(officeId)!;
+  }
+
+  for (const r of paidRecords) {
+    const insp = r.permitRecord.inspections[0];
+    if (!insp) continue;
+    const row = upsertOffice(
+      insp.office.id,
+      insp.office.code,
+      insp.office.name,
+      insp.office.lguId,
+    );
+    row.paidCount += 1;
+    row.paidAmountInMinor += r.amountInMinor;
+  }
+
+  let agingCount = 0;
+  let agingAmount = 0;
+
+  for (const r of unpaidRecords) {
+    const insp = r.permitRecord.inspections[0];
+    if (!insp) continue;
+    const row = upsertOffice(
+      insp.office.id,
+      insp.office.code,
+      insp.office.name,
+      insp.office.lguId,
+    );
+    row.unpaidCount += 1;
+    row.unpaidAmountInMinor += r.amountInMinor;
+
+    if (r.createdAt < agingThreshold) {
+      agingCount += 1;
+      agingAmount += r.amountInMinor;
+    }
+  }
+
+  const byOffice = Array.from(officeMap.values()).sort((a, b) =>
+    a.officeName.localeCompare(b.officeName),
+  );
+
+  const totalPaidCount = paidRecords.length;
+  const totalPaidAmountInMinor = paidRecords.reduce(
+    (s, r) => s + r.amountInMinor,
+    0,
+  );
+  const totalUnpaidCount = unpaidRecords.length;
+  const totalUnpaidAmountInMinor = unpaidRecords.reduce(
+    (s, r) => s + r.amountInMinor,
+    0,
+  );
+
+  return {
+    agingUnpaidAmountInMinor: agingAmount,
+    agingUnpaidCount: agingCount,
+    byOffice,
+    fromDate: from.toISOString(),
+    toDate: to.toISOString(),
+    totalPaidAmountInMinor,
+    totalPaidCount,
+    totalUnpaidAmountInMinor,
+    totalUnpaidCount,
+  };
+}

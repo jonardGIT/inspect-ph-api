@@ -27,6 +27,8 @@ model User {
   lgu                       Lgu?                   @relation(fields: [lguId], references: [id])
   business                  BusinessEstablishment? @relation("BusinessOwner", fields: [businessId], references: [id])
   officeAssignments         UserOfficeAssignment[]
+  submittedDisputes         FindingDispute[]       @relation("DisputeSubmitter")
+  resolvedDisputes          FindingDispute[]       @relation("DisputeResolver")
 
   @@index([lguId])
   @@index([businessId])
@@ -395,12 +397,33 @@ model Finding {
   updatedAt              DateTime                   @updatedAt
   attachments            Attachment[]
   cap                    CorrectiveActionPlan?
+  dispute                FindingDispute?
   checklistResult        InspectionChecklistResult? @relation(fields: [checklistResultId], references: [id])
   inspection             Inspection                 @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
 
   @@index([inspectionId])
   @@index([checklistResultId])
   @@index([severity])
+}
+
+model FindingDispute {
+  id               String               @id @default(uuid())
+  findingId        String               @unique
+  disputedByUserId String
+  reason           String
+  status           FindingDisputeStatus @default(PENDING)
+  resolution       String?
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  finding          Finding              @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  disputedBy       User                 @relation("DisputeSubmitter", fields: [disputedByUserId], references: [id])
+  resolvedBy       User?                @relation("DisputeResolver", fields: [resolvedByUserId], references: [id])
+
+  @@index([findingId])
+  @@index([status])
+  @@index([disputedByUserId])
 }
 
 model Attachment {
@@ -497,6 +520,13 @@ enum IssueReportStatus {
   UNDER_REVIEW
   RESOLVED
   DISMISSED
+}
+
+enum FindingDisputeStatus {
+  PENDING
+  REVIEWING
+  UPHELD
+  OVERTURNED
 }
 
 enum NotificationChannel {
