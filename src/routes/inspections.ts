@@ -35,6 +35,8 @@ import {
   resolveFinding,
   upsertInspectionChecklistResult,
   updateInspectionStatus,
+  bulkCreateInspections,
+  bulkAssignInspections,
 } from "../services/inspections.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -974,6 +976,62 @@ router.post(
     });
 
     response.status(202).json({ data: result });
+  }),
+);
+
+// POST /inspections/bulk — create multiple inspections at once
+router.post(
+  "/bulk",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  body("items")
+    .isArray({ min: 1, max: 50 })
+    .withMessage("items must be an array of 1–50"),
+  body("items.*.businessId")
+    .isUUID()
+    .withMessage("items[].businessId must be a UUID"),
+  body("items.*.officeId")
+    .isUUID()
+    .withMessage("items[].officeId must be a UUID"),
+  body("items.*.permitRecordId")
+    .isUUID()
+    .withMessage("items[].permitRecordId must be a UUID"),
+  body("items.*.scheduledAt")
+    .isISO8601()
+    .withMessage("items[].scheduledAt must be ISO 8601"),
+  body("items.*.inspectorId").optional().isUUID(),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const inspections = await bulkCreateInspections({
+      actorRole: request.auth!.role,
+      actorUserId: request.auth!.sub,
+      items: request.body.items,
+    });
+    response.status(201).json({ data: inspections });
+  }),
+);
+
+// PATCH /inspections/bulk-assign — assign multiple inspections to an inspector
+router.patch(
+  "/bulk-assign",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  body("inspectionIds")
+    .isArray({ min: 1, max: 50 })
+    .withMessage("inspectionIds must be an array of 1–50"),
+  body("inspectionIds.*")
+    .isUUID()
+    .withMessage("each inspectionId must be a UUID"),
+  body("inspectorId").isUUID().withMessage("inspectorId must be a UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const result = await bulkAssignInspections({
+      actorRole: request.auth!.role,
+      actorUserId: request.auth!.sub,
+      inspectionIds: request.body.inspectionIds,
+      inspectorId: request.body.inspectorId,
+    });
+    response.json({ data: result });
   }),
 );
 

@@ -189,6 +189,7 @@ model BusinessEstablishment {
   inspections             Inspection[]
   ownerUsers              User[]         @relation("BusinessOwner")
   permitRecords           PermitRecord[]
+  caps                    CorrectiveActionPlan[]
 
   @@index([businessName])
   @@index([barangay, city])
@@ -243,6 +244,7 @@ model Inspection {
   office                 Office                      @relation(fields: [officeId], references: [id], onDelete: Restrict)
   permitRecord           PermitRecord                @relation(fields: [permitRecordId], references: [id], onDelete: Cascade)
   checklistResults       InspectionChecklistResult[]
+  caps                   CorrectiveActionPlan[]
 
   @@index([businessId])
   @@index([permitRecordId])
@@ -259,6 +261,7 @@ model FireSafetyCertificate {
   expiresAt         DateTime
   status            FireSafetyCertificateStatus @default(DRAFT)
   remarks           String?
+  verificationUrl   String?
   createdAt         DateTime                    @default(now())
   updatedAt         DateTime                    @updatedAt
   inspection        Inspection                  @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
@@ -307,6 +310,7 @@ model PaymentRecord {
   paidAt            DateTime?
   failedAt          DateTime?
   failureReason     String?
+  receiptNumber     String?         @unique
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   permitRecord      PermitRecord    @relation(fields: [permitRecordId], references: [id], onDelete: Cascade)
@@ -325,6 +329,7 @@ model ChecklistTemplate {
   description String?
   sortOrder   Int                         @default(0)
   isActive    Boolean                     @default(true)
+  version     Int                         @default(1)
   createdAt   DateTime                    @default(now())
   updatedAt   DateTime                    @updatedAt
   results     InspectionChecklistResult[]
@@ -333,20 +338,44 @@ model ChecklistTemplate {
 }
 
 model InspectionChecklistResult {
-  id           String                @id @default(uuid())
-  inspectionId String
-  templateId   String
-  status       ChecklistResultStatus
-  remarks      String?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  findings     Finding[]
-  inspection   Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  template     ChecklistTemplate     @relation(fields: [templateId], references: [id])
+  id               String                @id @default(uuid())
+  inspectionId     String
+  templateId       String
+  status           ChecklistResultStatus
+  remarks          String?
+  templateVersion  Int?
+  templateSnapshot Json?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  findings         Finding[]
+  inspection       Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  template         ChecklistTemplate     @relation(fields: [templateId], references: [id])
 
   @@unique([inspectionId, templateId])
   @@index([templateId])
   @@index([status])
+}
+
+model CorrectiveActionPlan {
+  id           String                @id @default(uuid())
+  findingId    String                @unique
+  inspectionId String
+  businessId   String
+  description  String
+  deadlineAt   DateTime?
+  status       CapStatus             @default(OPEN)
+  responseNote String?
+  resolvedAt   DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  finding      Finding               @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  inspection   Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  business     BusinessEstablishment @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([inspectionId])
+  @@index([businessId])
+  @@index([status])
+  @@index([deadlineAt])
 }
 
 model Finding {
@@ -365,6 +394,7 @@ model Finding {
   createdAt              DateTime                   @default(now())
   updatedAt              DateTime                   @updatedAt
   attachments            Attachment[]
+  cap                    CorrectiveActionPlan?
   checklistResult        InspectionChecklistResult? @relation(fields: [checklistResultId], references: [id])
   inspection             Inspection                 @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
 
@@ -471,6 +501,14 @@ enum IssueReportStatus {
 
 enum NotificationChannel {
   IN_APP
+  PUSH
+}
+
+enum CapStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  ESCALATED
 }
 
 enum NotificationOutboxStatus {

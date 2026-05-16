@@ -338,7 +338,10 @@ export async function listOwnPermits(input: ListOwnPermitsInput): Promise<{
   });
 
   if (!user?.businessId) {
-    return { data: [], meta: { limit: input.limit, page: input.page, total: 0 } };
+    return {
+      data: [],
+      meta: { limit: input.limit, page: input.page, total: 0 },
+    };
   }
 
   const where: Prisma.PermitRecordWhereInput = {
@@ -440,4 +443,91 @@ export async function updatePermit(
   });
 
   return toPublicPermit(updated);
+}
+
+export async function requestPermitRenewal(input: {
+  actorUserId: string;
+  businessId: string;
+}): Promise<PublicPermit> {
+  const business = await prisma.businessEstablishment.findUnique({
+    where: { id: input.businessId },
+    include: {
+      ownerUsers: { where: { id: input.actorUserId }, select: { id: true } },
+      permitRecords: {
+        where: { archivedAt: null },
+        orderBy: { expirationDate: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          lineOfBusiness: true,
+          permitNumber: true,
+          expirationDate: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  if (!business) {
+    throw new AppError(404, "NOT_FOUND", "Business not found");
+  }
+
+  const isOwner = business.ownerUsers.length > 0;
+
+  if (!isOwner) {
+    throw new AppError(403, "FORBIDDEN", "You do not own this business");
+  }
+
+  const existing = business.permitRecords[0];
+  const today = new Date();
+
+  if (existing) {
+    const daysUntilExpiry = Math.floor(
+      (existing.expirationDate.getTime() - today.getTime()) /
+        (1000 * 60 * 60 * 24),
+    );
+
+    if (existing.status === "PENDING_INSPECTION") {
+      throw new AppError(
+        409,
+        "RENEWAL_ALREADY_PENDING",
+        "A renewal application is already in progress",
+      );
+    }
+
+    if (daysUntilExpiry > 90) {
+      throw new AppError(
+        400,
+        "RENEWAL_TOO_EARLY",
+        "Renewal applications can only be submitted within 90 days of permit expiration",
+      );
+    }
+  }
+
+  const applicationDate = today;
+  const expirationDate = new Date(today);
+  expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+
+  // Generate a renewal permit number suffixed with -R{YYYY}
+  const baseNumber =
+    existing?.permitNumber ??
+    `BPL-${input.businessId.slice(0, 8).toUpperCase()}`;
+  const renewalPermitNumber = `${baseNumber}-R${today.getFullYear()}`;
+
+  const permit = await prisma.permitRecord.create({
+    data: {
+      applicationDate,
+      businessId: input.businessId,
+      createdById: input.actorUserId,
+      expirationDate,
+      lineOfBusiness: existing?.lineOfBusiness ?? "General",
+      permitNumber: renewalPermitNumber,
+      status: "PENDING_INSPECTION",
+    },
+    include: {
+      business: { select: { businessName: true, id: true } },
+    },
+  });
+
+  return toPublicPermit(permit);
 }

@@ -698,10 +698,27 @@ async function ensureAccessibleInspection(
   return inspection;
 }
 
-async function ensureChecklistTemplate(templateId: string): Promise<void> {
+async function ensureChecklistTemplate(templateId: string): Promise<{
+  id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  module: string;
+  sortOrder: number;
+  version: number;
+}> {
   const template = await prisma.checklistTemplate.findUnique({
     where: { id: templateId },
-    select: { id: true, isActive: true },
+    select: {
+      id: true,
+      isActive: true,
+      code: true,
+      title: true,
+      description: true,
+      module: true,
+      sortOrder: true,
+      version: true,
+    },
   });
 
   if (!template || !template.isActive) {
@@ -711,6 +728,8 @@ async function ensureChecklistTemplate(templateId: string): Promise<void> {
       "Checklist template not found",
     );
   }
+
+  return template;
 }
 
 async function ensureChecklistResultBelongsToInspection(
@@ -1155,7 +1174,17 @@ export async function upsertInspectionChecklistResult(input: {
     input.actorRole,
     input.actorUserId,
   );
-  await ensureChecklistTemplate(input.templateId);
+  const template = await ensureChecklistTemplate(input.templateId);
+
+  const templateSnapshot = {
+    id: template.id,
+    code: template.code,
+    title: template.title,
+    description: template.description,
+    module: template.module,
+    sortOrder: template.sortOrder,
+    version: template.version,
+  };
 
   const result = await prisma.inspectionChecklistResult.upsert({
     where: {
@@ -1169,6 +1198,8 @@ export async function upsertInspectionChecklistResult(input: {
       remarks: input.remarks?.trim() || null,
       status: input.status,
       templateId: input.templateId,
+      templateVersion: template.version,
+      templateSnapshot,
     },
     update: {
       remarks: input.remarks?.trim() || null,
@@ -1822,4 +1853,120 @@ export async function requestReinspection(
   });
 
   return { inspectionId: input.inspectionId };
+}
+
+export interface BulkCreateInspectionItem {
+  businessId: string;
+  inspectorId?: string;
+  notes?: string;
+  officeId: string;
+  permitRecordId: string;
+  scheduledAt: string;
+}
+
+export async function bulkCreateInspections(input: {
+  actorRole: AuthRole;
+  actorUserId: string;
+  items: BulkCreateInspectionItem[];
+}): Promise<PublicInspection[]> {
+  const MAX_BULK = 50;
+
+  if (input.items.length === 0) {
+    throw new AppError(400, "VALIDATION_ERROR", "items must not be empty");
+  }
+
+  if (input.items.length > MAX_BULK) {
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      `Bulk create is limited to ${MAX_BULK} inspections`,
+    );
+  }
+
+  const created = await prisma.$transaction(
+    input.items.map((item) =>
+      prisma.inspection.create({
+        data: {
+          businessId: item.businessId,
+          inspectorId: item.inspectorId ?? null,
+          notes: item.notes?.trim() ?? null,
+          officeId: item.officeId,
+          permitRecordId: item.permitRecordId,
+          scheduledAt: new Date(item.scheduledAt),
+          status: "SCHEDULED",
+        },
+        include: {
+          business: { select: { businessName: true, id: true } },
+          office: { select: { code: true, id: true, lguId: true, name: true } },
+          permitRecord: { select: { id: true, permitNumber: true } },
+        },
+      }),
+    ),
+  );
+
+  await prisma.auditLog.createMany({
+    data: created.map((insp) => ({
+      action: "inspection.created",
+      actorUserId: input.actorUserId,
+      entityId: insp.id,
+      entityType: "inspection",
+      summary: `Inspection scheduled for ${insp.business.businessName} (bulk)`,
+    })),
+  });
+
+  return created.map(toPublicInspection);
+}
+
+export async function bulkAssignInspections(input: {
+  actorRole: AuthRole;
+  actorUserId: string;
+  inspectionIds: string[];
+  inspectorId: string;
+}): Promise<{ updated: number }> {
+  const MAX_BULK = 50;
+
+  if (input.inspectionIds.length === 0) {
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      "inspectionIds must not be empty",
+    );
+  }
+
+  if (input.inspectionIds.length > MAX_BULK) {
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      `Bulk assign is limited to ${MAX_BULK} inspections`,
+    );
+  }
+
+  const inspector = await prisma.user.findUnique({
+    where: { id: input.inspectorId },
+    select: { id: true, role: true },
+  });
+
+  if (!inspector) {
+    throw new AppError(404, "NOT_FOUND", "Inspector not found");
+  }
+
+  const result = await prisma.inspection.updateMany({
+    where: {
+      id: { in: input.inspectionIds },
+      status: { in: ["SCHEDULED", "OVERDUE"] },
+    },
+    data: { inspectorId: input.inspectorId },
+  });
+
+  await prisma.auditLog.createMany({
+    data: input.inspectionIds.map((id) => ({
+      action: "inspection.assigned",
+      actorUserId: input.actorUserId,
+      entityId: id,
+      entityType: "inspection",
+      summary: `Inspection bulk-assigned to inspector ${input.inspectorId}`,
+    })),
+  });
+
+  return { updated: result.count };
 }

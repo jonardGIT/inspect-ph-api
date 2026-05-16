@@ -11,7 +11,9 @@ import { requireModule } from "../middleware/module-gate.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
   createFireSafetyCertificate,
+  getCertificateHtml,
   getFireSafetyCertificateByInspection,
+  getPublicCertificateVerification,
   getPublicFireSafetyCertificateByNumber,
   listFireSafetyCertificates,
   listOwnCertificates,
@@ -85,7 +87,14 @@ router.get(
       userId: request.auth!.sub,
     });
 
-    response.json({ data: result.data, meta: createListMeta(result.meta.total, result.meta.page, result.meta.limit) });
+    response.json({
+      data: result.data,
+      meta: createListMeta(
+        result.meta.total,
+        result.meta.page,
+        result.meta.limit,
+      ),
+    });
   }),
 );
 
@@ -222,6 +231,34 @@ router.post(
     });
 
     response.status(201).json({ data: certificate });
+  }),
+);
+
+// GET /public/:certificateNumber/verify — public QR-based verification
+router.get(
+  "/public/:certificateNumber/verify",
+  publicCertificateLookupRateLimiter,
+  param("certificateNumber").isString().notEmpty(),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const result = await getPublicCertificateVerification(
+      request.params["certificateNumber"] as string,
+    );
+    response.json({ data: result });
+  }),
+);
+
+// GET /:id/print — printable HTML certificate with QR code
+router.get(
+  "/:id/print",
+  authenticate,
+  authorize(...ADMIN_ROLES, "inspector", "business_owner"),
+  param("id").isUUID().withMessage("id must be a UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const html = await getCertificateHtml(request.params["id"] as string);
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.send(html);
   }),
 );
 

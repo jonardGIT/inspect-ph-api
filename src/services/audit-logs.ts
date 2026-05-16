@@ -11,6 +11,8 @@ export interface PublicAuditLog {
     | "auth.login"
     | "auth.register"
     | "auth.session_revoked"
+    | "cap.created"
+    | "cap.status_updated"
     | "finding.created"
     | "finding.resolved"
     | "inspection.assigned"
@@ -18,6 +20,7 @@ export interface PublicAuditLog {
     | "inspection.created"
     | "inspection.status_updated"
     | "payment.status_updated"
+    | "permit.expiry_reminder"
     | "reinspection.requested";
   actor?: {
     email: string;
@@ -30,10 +33,17 @@ export interface PublicAuditLog {
   entityId?: string;
   entityType:
     | "attachment"
+    | "business"
+    | "cap"
+    | "certificate"
     | "checklist_result"
     | "finding"
     | "inspection"
+    | "issue_report"
+    | "lgu"
+    | "office"
     | "payment"
+    | "permit"
     | "user";
   id: string;
   summary: string;

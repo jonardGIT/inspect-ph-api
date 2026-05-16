@@ -21,6 +21,7 @@ export interface PublicPayment {
   paidAt?: string;
   failedAt?: string;
   failureReason?: string;
+  receiptNumber?: string;
   createdAt: string;
   updatedAt: string;
   permit: {
@@ -73,6 +74,15 @@ function createPaymentReferenceNumber() {
   return `PAY-${dateSegment}-${randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
+function generateReceiptNumber(): string {
+  const date = new Date();
+  const dateSegment = `${date.getUTCFullYear()}${String(
+    date.getUTCMonth() + 1,
+  ).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
+
+  return `OR-${dateSegment}-${randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
 function toPublicPayment(record: PaymentRecordWithPermit): PublicPayment {
   return {
     amountInMinor: record.amountInMinor,
@@ -84,6 +94,7 @@ function toPublicPayment(record: PaymentRecordWithPermit): PublicPayment {
     failureReason: record.failureReason ?? undefined,
     id: record.id,
     paidAt: record.paidAt?.toISOString(),
+    receiptNumber: record.receiptNumber ?? undefined,
     permit: {
       business: {
         businessName: record.permitRecord.business.businessName,
@@ -288,6 +299,10 @@ export async function processPaymentWebhook(input: {
       failureReason:
         event.status === "failed" ? event.failureReason || null : null,
       paidAt: event.status === "paid" ? now : null,
+      receiptNumber:
+        event.status === "paid" && !existing.receiptNumber
+          ? generateReceiptNumber()
+          : existing.receiptNumber,
       status: event.status.toUpperCase() as PaymentStatus,
     },
     include: {
@@ -314,4 +329,77 @@ export async function processPaymentWebhook(input: {
   });
 
   return toPublicPayment(updated);
+}
+
+export async function getPaymentReceipt(paymentId: string): Promise<string> {
+  const record = await prisma.paymentRecord.findUnique({
+    where: { id: paymentId },
+    include: {
+      permitRecord: {
+        include: {
+          business: {
+            select: { businessName: true, id: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Payment not found");
+  }
+
+  if (record.status !== "PAID" || !record.receiptNumber) {
+    throw new AppError(
+      400,
+      "PAYMENT_NOT_PAID",
+      "Receipt is only available for paid payments",
+    );
+  }
+
+  const paidDate =
+    record.paidAt?.toLocaleDateString("en-PH", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }) ?? "—";
+
+  const amount = (record.amountInMinor / 100).toLocaleString("en-PH", {
+    style: "currency",
+    currency: record.currency,
+  });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Official Receipt — ${record.receiptNumber}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; color: #111; font-size: 14px; }
+    .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 16px; margin-bottom: 24px; }
+    .header h2 { margin: 4px 0; }
+    .field { margin: 8px 0; display: flex; gap: 8px; }
+    .field label { font-weight: bold; min-width: 180px; }
+    .amount { font-size: 1.3em; font-weight: bold; margin: 16px 0; }
+    .footer { margin-top: 48px; border-top: 1px solid #ccc; padding-top: 16px; font-size: 0.85em; color: #555; }
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Republic of the Philippines</h2>
+    <h2>Official Receipt</h2>
+  </div>
+  <div class="field"><label>OR Number:</label> <span>${record.receiptNumber}</span></div>
+  <div class="field"><label>Reference No.:</label> <span>${record.referenceNumber}</span></div>
+  <div class="field"><label>Business:</label> <span>${record.permitRecord.business.businessName}</span></div>
+  <div class="field"><label>Permit No.:</label> <span>${record.permitRecord.permitNumber}</span></div>
+  <div class="field"><label>Date Paid:</label> <span>${paidDate}</span></div>
+  ${record.description ? `<div class="field"><label>Description:</label> <span>${record.description}</span></div>` : ""}
+  <div class="amount">Amount: ${amount}</div>
+  <div class="footer">
+    <p>This is a computer-generated official receipt. No signature required.</p>
+  </div>
+</body>
+</html>`;
 }

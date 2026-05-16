@@ -16,6 +16,7 @@ import {
   getPublicPermitByNumber,
   listOwnPermits,
   listPermits,
+  requestPermitRenewal,
   updatePermit,
 } from "../services/permits.js";
 import { ADMIN_ROLES } from "../types/auth.js";
@@ -121,7 +122,14 @@ router.get(
       userId: request.auth!.sub,
     });
 
-    response.json({ data: result.data, meta: createListMeta(result.meta.total, result.meta.page, result.meta.limit) });
+    response.json({
+      data: result.data,
+      meta: createListMeta(
+        result.meta.total,
+        result.meta.page,
+        result.meta.limit,
+      ),
+    });
   }),
 );
 
@@ -278,6 +286,22 @@ router.patch(
   asyncHandler(async (request, response) => {
     const permit = await archivePermit(request.params["id"] as string);
     response.json({ data: permit });
+  }),
+);
+
+// POST /permits/renewal-application — business_owner self-service renewal
+router.post(
+  "/renewal-application",
+  authenticate,
+  authorize("business_owner"),
+  body("businessId").isUUID().withMessage("businessId must be a UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const permit = await requestPermitRenewal({
+      actorUserId: request.auth!.sub,
+      businessId: request.body.businessId as string,
+    });
+    response.status(201).json({ data: permit });
   }),
 );
 

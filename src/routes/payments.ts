@@ -9,6 +9,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
   createPayment,
+  getPaymentReceipt,
   getPublicPaymentByReferenceNumber,
   listPayments,
   processPaymentWebhook,
@@ -177,6 +178,20 @@ router.post(
     });
 
     response.status(201).json({ data: payment });
+  }),
+);
+
+// GET /:id/receipt — printable HTML official receipt
+router.get(
+  "/:id/receipt",
+  authenticate,
+  authorize(...ADMIN_ROLES, "office_clerk", "business_owner"),
+  param("id").isUUID().withMessage("id must be a UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const html = await getPaymentReceipt(request.params["id"] as string);
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.send(html);
   }),
 );
 
