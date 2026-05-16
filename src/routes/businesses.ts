@@ -9,7 +9,9 @@ import { requireJurisdiction } from "../middleware/jurisdiction.js";
 import {
   archiveBusiness,
   createBusiness,
+  getBusiness,
   listBusinesses,
+  updateBusiness,
 } from "../services/businesses.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -132,6 +134,76 @@ router.post(
     });
 
     response.status(201).json({ data: business });
+  }),
+);
+
+router.get(
+  "/:id",
+  authenticate,
+  requireJurisdiction(),
+  param("id").isUUID().withMessage("id must be a valid UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const business = await getBusiness(request.params["id"] as string);
+    response.json({ data: business });
+  }),
+);
+
+router.patch(
+  "/:id",
+  authenticate,
+  authorize("admin", "lgu_admin"),
+  [
+    param("id").isUUID().withMessage("id must be a valid UUID"),
+    body("businessName").optional().isString().trim().notEmpty(),
+    body("ownerName").optional().isString().trim().notEmpty(),
+    body("addressLine").optional().isString().trim().notEmpty(),
+    body("barangay").optional().isString().trim().notEmpty(),
+    body("city").optional().isString().trim().notEmpty(),
+    body("province").optional().isString().trim().notEmpty(),
+    body("tradeName").optional().isString(),
+    body("taxIdentificationNumber").optional().isString(),
+    body("contactNumber").optional().isString(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const business = await updateBusiness(request.params["id"] as string, {
+      addressLine:
+        typeof request.body.addressLine === "string"
+          ? request.body.addressLine
+          : undefined,
+      barangay:
+        typeof request.body.barangay === "string"
+          ? request.body.barangay
+          : undefined,
+      businessName:
+        typeof request.body.businessName === "string"
+          ? request.body.businessName
+          : undefined,
+      city:
+        typeof request.body.city === "string" ? request.body.city : undefined,
+      contactNumber:
+        "contactNumber" in request.body
+          ? (request.body.contactNumber as string | null)
+          : undefined,
+      ownerName:
+        typeof request.body.ownerName === "string"
+          ? request.body.ownerName
+          : undefined,
+      province:
+        typeof request.body.province === "string"
+          ? request.body.province
+          : undefined,
+      taxIdentificationNumber:
+        "taxIdentificationNumber" in request.body
+          ? (request.body.taxIdentificationNumber as string | null)
+          : undefined,
+      tradeName:
+        "tradeName" in request.body
+          ? (request.body.tradeName as string | null)
+          : undefined,
+    });
+    response.json({ data: business });
   }),
 );
 

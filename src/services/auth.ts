@@ -421,3 +421,28 @@ export async function registerUser(
     user: toPublicUser(user),
   };
 }
+
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!user) {
+    throw new AppError(404, "NOT_FOUND", "User not found");
+  }
+
+  const isValid = await comparePassword(currentPassword, user.passwordHash);
+
+  if (!isValid) {
+    throw new AppError(401, "INVALID_CREDENTIALS", "Current password is incorrect");
+  }
+
+  const newHash = await hashPassword(newPassword);
+
+  await prisma.user.update({
+    data: { passwordHash: newHash },
+    where: { id: userId },
+  });
+}

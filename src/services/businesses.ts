@@ -183,3 +183,76 @@ export async function archiveBusiness(id: string): Promise<PublicBusiness> {
 
   return toPublicBusiness(updated);
 }
+
+export async function getBusiness(id: string): Promise<PublicBusiness> {
+  const record = await prisma.businessEstablishment.findUnique({
+    where: { id },
+  });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Business not found");
+  }
+
+  return toPublicBusiness(record);
+}
+
+export interface UpdateBusinessInput {
+  addressLine?: string;
+  barangay?: string;
+  businessName?: string;
+  city?: string;
+  contactNumber?: string | null;
+  ownerName?: string;
+  province?: string;
+  taxIdentificationNumber?: string | null;
+  tradeName?: string | null;
+}
+
+export async function updateBusiness(
+  id: string,
+  input: UpdateBusinessInput,
+): Promise<PublicBusiness> {
+  const record = await prisma.businessEstablishment.findUnique({
+    where: { id },
+  });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Business not found");
+  }
+
+  const updated = await prisma.businessEstablishment.update({
+    data: {
+      ...(input.addressLine !== undefined
+        ? { addressLine: input.addressLine.trim() }
+        : {}),
+      ...(input.barangay !== undefined
+        ? { barangay: input.barangay.trim() }
+        : {}),
+      ...(input.businessName !== undefined
+        ? { businessName: input.businessName.trim() }
+        : {}),
+      ...(input.city !== undefined ? { city: input.city.trim() } : {}),
+      ...(input.contactNumber !== undefined
+        ? { contactNumber: input.contactNumber?.trim() ?? null }
+        : {}),
+      ...(input.ownerName !== undefined
+        ? { ownerName: input.ownerName.trim() }
+        : {}),
+      ...(input.province !== undefined
+        ? { province: input.province.trim() }
+        : {}),
+      ...(input.taxIdentificationNumber !== undefined
+        ? {
+            taxIdentificationNumber:
+              input.taxIdentificationNumber?.trim() ?? null,
+          }
+        : {}),
+      ...(input.tradeName !== undefined
+        ? { tradeName: input.tradeName?.trim() ?? null }
+        : {}),
+    },
+    where: { id },
+  });
+
+  return toPublicBusiness(updated);
+}

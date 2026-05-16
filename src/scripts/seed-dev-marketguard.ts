@@ -172,6 +172,65 @@ async function main() {
     },
   });
 
+  const CHECKLIST_ITEMS = [
+    {
+      code: "MARKET-001",
+      description:
+        "Stall permit, business registration, and health permits for food handlers must be current and posted.",
+      sortOrder: 1,
+      title: "Stall permit and documentation compliance",
+    },
+    {
+      code: "MARKET-002",
+      description:
+        "Food products must be stored at safe temperatures, protected from contamination, and properly labelled.",
+      sortOrder: 2,
+      title: "Food storage and handling safety",
+    },
+    {
+      code: "MARKET-003",
+      description:
+        "Stall area, display surfaces, utensils, and food contact materials must be clean and free of pest evidence.",
+      sortOrder: 3,
+      title: "Stall sanitation and cleanliness",
+    },
+    {
+      code: "MARKET-004",
+      description:
+        "Solid waste must be segregated and disposed of at the designated collection point; drainage must be clear.",
+      sortOrder: 4,
+      title: "Waste management and drainage",
+    },
+    {
+      code: "MARKET-005",
+      description:
+        "No evidence of rodents, insects, or vectors; pest-control schedule and records must be available for inspection.",
+      sortOrder: 5,
+      title: "Pest control and public health measures",
+    },
+  ];
+
+  for (const item of CHECKLIST_ITEMS) {
+    await prisma.checklistTemplate.upsert({
+      where: { code: item.code },
+      update: {
+        description: item.description,
+        isActive: true,
+        module: "MARKET",
+        sortOrder: item.sortOrder,
+        title: item.title,
+      },
+      create: {
+        code: item.code,
+        description: item.description,
+        isActive: true,
+        module: "MARKET",
+        sortOrder: item.sortOrder,
+        title: item.title,
+      },
+    });
+  }
+
   console.log(
     JSON.stringify(
       {

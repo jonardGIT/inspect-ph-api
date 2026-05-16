@@ -9,6 +9,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
   bootstrapAdmin,
+  changePassword,
   getCurrentUser,
   listUsers,
   login,
@@ -352,6 +353,35 @@ router.post(
     );
 
     response.status(201).json({ data: result });
+  }),
+);
+
+router.patch(
+  "/me/change-password",
+  authenticate,
+  [
+    body("currentPassword")
+      .isString()
+      .notEmpty()
+      .withMessage("currentPassword is required"),
+    body("newPassword")
+      .isString()
+      .isLength({ min: 8 })
+      .withMessage("newPassword must be at least 8 characters"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new Error("Authentication failed");
+    }
+
+    await changePassword(
+      request.auth.sub,
+      String(request.body.currentPassword),
+      String(request.body.newPassword),
+    );
+
+    response.json({ data: { message: "Password changed successfully" } });
   }),
 );
 

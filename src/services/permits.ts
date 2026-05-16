@@ -387,3 +387,57 @@ export async function archivePermit(id: string): Promise<PublicPermit> {
 
   return toPublicPermit(updated);
 }
+
+export async function getPermit(id: string): Promise<PublicPermit> {
+  const record = await prisma.permitRecord.findUnique({
+    include: { business: { select: { businessName: true, id: true } } },
+    where: { id },
+  });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Permit not found");
+  }
+
+  return toPublicPermit(record);
+}
+
+export interface UpdatePermitInput {
+  applicationDate?: string;
+  expirationDate?: string;
+  lineOfBusiness?: string;
+  permitNumber?: string;
+}
+
+export async function updatePermit(
+  id: string,
+  input: UpdatePermitInput,
+): Promise<PublicPermit> {
+  const record = await prisma.permitRecord.findUnique({
+    where: { id },
+  });
+
+  if (!record) {
+    throw new AppError(404, "NOT_FOUND", "Permit not found");
+  }
+
+  const updated = await prisma.permitRecord.update({
+    data: {
+      ...(input.applicationDate !== undefined
+        ? { applicationDate: new Date(input.applicationDate) }
+        : {}),
+      ...(input.expirationDate !== undefined
+        ? { expirationDate: new Date(input.expirationDate) }
+        : {}),
+      ...(input.lineOfBusiness !== undefined
+        ? { lineOfBusiness: input.lineOfBusiness.trim() }
+        : {}),
+      ...(input.permitNumber !== undefined
+        ? { permitNumber: input.permitNumber.trim() }
+        : {}),
+    },
+    include: { business: { select: { businessName: true, id: true } } },
+    where: { id },
+  });
+
+  return toPublicPermit(updated);
+}

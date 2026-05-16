@@ -170,6 +170,65 @@ async function main() {
     },
   });
 
+  const CHECKLIST_ITEMS = [
+    {
+      code: "BUILD-001",
+      description:
+        "The building permit, approved plans, and engineer's certificates must be on-site and current.",
+      sortOrder: 1,
+      title: "Building permit and documentation compliance",
+    },
+    {
+      code: "BUILD-002",
+      description:
+        "Structural elements — foundations, columns, beams, and floor systems — must show no visible deterioration or unauthorized modification.",
+      sortOrder: 2,
+      title: "Structural integrity and safety",
+    },
+    {
+      code: "BUILD-003",
+      description:
+        "Fire exits, extinguishers, alarm systems, and sprinkler provisions must comply with the Fire Code.",
+      sortOrder: 3,
+      title: "Fire safety provisions and emergency exits",
+    },
+    {
+      code: "BUILD-004",
+      description:
+        "Electrical wiring, panels, and plumbing installations must meet the Philippine Electrical Code and National Plumbing Code.",
+      sortOrder: 4,
+      title: "Electrical and plumbing systems",
+    },
+    {
+      code: "BUILD-005",
+      description:
+        "Occupancy load, ventilation, lighting, and sanitary facilities must conform to the approved occupancy classification.",
+      sortOrder: 5,
+      title: "Occupancy load and sanitation facilities",
+    },
+  ];
+
+  for (const item of CHECKLIST_ITEMS) {
+    await prisma.checklistTemplate.upsert({
+      where: { code: item.code },
+      update: {
+        description: item.description,
+        isActive: true,
+        module: "BUILD",
+        sortOrder: item.sortOrder,
+        title: item.title,
+      },
+      create: {
+        code: item.code,
+        description: item.description,
+        isActive: true,
+        module: "BUILD",
+        sortOrder: item.sortOrder,
+        title: item.title,
+      },
+    });
+  }
+
   console.log(
     JSON.stringify(
       {

@@ -11,10 +11,12 @@ import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import {
   archivePermit,
   createPermit,
+  getPermit,
   getPublicPermitFindingsByNumber,
   getPublicPermitByNumber,
   listOwnPermits,
   listPermits,
+  updatePermit,
 } from "../services/permits.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -217,6 +219,53 @@ router.post(
     });
 
     response.status(201).json({ data: permit });
+  }),
+);
+
+router.get(
+  "/:id",
+  authenticate,
+  requireJurisdiction(),
+  param("id").isUUID().withMessage("id must be a valid UUID"),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const permit = await getPermit(request.params["id"] as string);
+    response.json({ data: permit });
+  }),
+);
+
+router.patch(
+  "/:id",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    param("id").isUUID().withMessage("id must be a valid UUID"),
+    body("lineOfBusiness").optional().isString().trim().notEmpty(),
+    body("permitNumber").optional().isString().trim().notEmpty(),
+    body("applicationDate").optional().isISO8601(),
+    body("expirationDate").optional().isISO8601(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const permit = await updatePermit(request.params["id"] as string, {
+      applicationDate:
+        typeof request.body.applicationDate === "string"
+          ? request.body.applicationDate
+          : undefined,
+      expirationDate:
+        typeof request.body.expirationDate === "string"
+          ? request.body.expirationDate
+          : undefined,
+      lineOfBusiness:
+        typeof request.body.lineOfBusiness === "string"
+          ? request.body.lineOfBusiness
+          : undefined,
+      permitNumber:
+        typeof request.body.permitNumber === "string"
+          ? request.body.permitNumber
+          : undefined,
+    });
+    response.json({ data: permit });
   }),
 );
 

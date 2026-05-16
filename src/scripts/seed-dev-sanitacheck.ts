@@ -231,6 +231,8 @@ async function main() {
 
   console.log(
     JSON.stringify(
+      {
+        business: {
           id: business.id,
           name: business.businessName,
         },

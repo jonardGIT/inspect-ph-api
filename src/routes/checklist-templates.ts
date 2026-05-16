@@ -9,6 +9,7 @@ import {
   createChecklistTemplate,
   getChecklistTemplate,
   listChecklistTemplates,
+  updateChecklistTemplate,
   updateChecklistTemplateActive,
 } from "../services/checklist-templates.js";
 import { ADMIN_ROLES } from "../types/auth.js";
@@ -142,6 +143,54 @@ router.post(
     });
 
     response.status(201).json({ data: template });
+  }),
+);
+
+router.patch(
+  "/:id",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    param("id").isUUID().withMessage("id must be a UUID"),
+    body("title")
+      .optional()
+      .isString()
+      .trim()
+      .notEmpty()
+      .isLength({ max: 255 }),
+    body("description")
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ max: 1000 }),
+    body("sortOrder").optional().isInt({ min: 0 }),
+    body("isActive").optional().isBoolean(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const template = await updateChecklistTemplate(
+      String(request.params.id),
+      {
+        description:
+          "description" in request.body
+            ? (request.body.description as string | null)
+            : undefined,
+        isActive:
+          typeof request.body.isActive === "boolean"
+            ? request.body.isActive
+            : undefined,
+        sortOrder:
+          typeof request.body.sortOrder === "number"
+            ? request.body.sortOrder
+            : undefined,
+        title:
+          typeof request.body.title === "string"
+            ? request.body.title
+            : undefined,
+      },
+    );
+
+    response.json({ data: template });
   }),
 );
 

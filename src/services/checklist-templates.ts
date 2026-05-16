@@ -157,3 +157,39 @@ export async function updateChecklistTemplateActive(
 
   return toPublicChecklistTemplate(updated);
 }
+
+export interface UpdateChecklistTemplateInput {
+  description?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+  title?: string;
+}
+
+export async function updateChecklistTemplate(
+  id: string,
+  input: UpdateChecklistTemplateInput,
+): Promise<PublicChecklistTemplate> {
+  const template = await prisma.checklistTemplate.findUnique({ where: { id } });
+
+  if (!template) {
+    throw new AppError(404, "NOT_FOUND", "Checklist template not found");
+  }
+
+  const updated = await prisma.checklistTemplate.update({
+    data: {
+      ...(input.description !== undefined
+        ? { description: input.description?.trim() ?? null }
+        : {}),
+      ...(typeof input.isActive === "boolean"
+        ? { isActive: input.isActive }
+        : {}),
+      ...(typeof input.sortOrder === "number"
+        ? { sortOrder: input.sortOrder }
+        : {}),
+      ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+    },
+    where: { id },
+  });
+
+  return toPublicChecklistTemplate(updated);
+}
