@@ -32,3 +32,8 @@ ALTER TABLE "PaymentRecord"
 ADD CONSTRAINT "PaymentRecord_permitRecordId_fkey"
 FOREIGN KEY ("permitRecordId") REFERENCES "PermitRecord"("id")
 ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Add receiptNumber and drop DEFAULT on updatedAt (set by add_finding_dispute)
+ALTER TABLE "PaymentRecord" ADD COLUMN "receiptNumber" TEXT;
+ALTER TABLE "PaymentRecord" ALTER COLUMN "updatedAt" DROP DEFAULT;
+CREATE UNIQUE INDEX "PaymentRecord_receiptNumber_key" ON "PaymentRecord"("receiptNumber");

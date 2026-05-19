@@ -37,6 +37,7 @@ import webhookEndpointsRouter from "./routes/webhook-endpoints.js";
 import { checklistMarketplaceRouter } from "./routes/checklist-marketplace.js";
 import { oauthRouter } from "./routes/oauth.js";
 import { mutualRecognitionRouter } from "./routes/mutual-recognition.js";
+import { nationalIntegrationsRouter } from "./routes/national-integrations.js";
 
 const app = express();
 export const API_V1 = "/api/v1";
@@ -100,6 +101,7 @@ app.use(`${API_V1}/open-data`, openDataRouter);
 app.use(`${API_V1}/webhook-endpoints`, webhookEndpointsRouter);
 app.use(`${API_V1}/oauth`, oauthRouter);
 app.use(`${API_V1}/mutual-recognition`, mutualRecognitionRouter);
+app.use(`${API_V1}/national`, nationalIntegrationsRouter);
 
 app.use(notFoundHandler);
 

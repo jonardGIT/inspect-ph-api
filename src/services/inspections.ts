@@ -27,6 +27,7 @@ export interface ListInspectionsInput {
   jurisdictionScope: JurisdictionScope;
   limit: number;
   lguId?: string;
+  moduleCode?: string;
   officeId?: string;
   page: number;
   permitRecordId?: string;
@@ -42,6 +43,7 @@ export interface CreateInspectionInput {
   inspectorId?: string;
   latitude?: number;
   longitude?: number;
+  moduleCode?: string;
   notes?: string;
   officeId: string;
   permitRecordId: string;
@@ -60,6 +62,7 @@ export interface UpdateInspectionStatusInput {
   actorRole: AuthRole;
   actorUserId: string;
   id: string;
+  jurisdictionScope?: JurisdictionScope;
   latitude?: number;
   longitude?: number;
   notes?: string;
@@ -75,6 +78,7 @@ export interface PublicInspection {
   createdAt: string;
   id: string;
   inspectorId?: string;
+  moduleCode?: string;
   location?: {
     accuracyMeters?: number;
     latitude: number;
@@ -85,6 +89,7 @@ export interface PublicInspection {
     code: string;
     id: string;
     lguId: string;
+    moduleCodes: string[];
     name: string;
   };
   permit: {
@@ -228,29 +233,24 @@ export interface PublicInspectionHistoryEvent {
     | "attachment_uploaded";
 }
 
+const INSPECTION_INCLUDE = {
+  business: { select: { businessName: true, id: true } },
+  office: {
+    select: {
+      code: true,
+      id: true,
+      lguId: true,
+      moduleAssignments: {
+        select: { module: { select: { code: true } } },
+      },
+      name: true,
+    },
+  },
+  permitRecord: { select: { id: true, permitNumber: true } },
+} as const;
+
 type InspectionWithRelations = Prisma.InspectionGetPayload<{
-  include: {
-    business: {
-      select: {
-        businessName: true;
-        id: true;
-      };
-    };
-    office: {
-      select: {
-        code: true;
-        id: true;
-        lguId: true;
-        name: true;
-      };
-    };
-    permitRecord: {
-      select: {
-        id: true;
-        permitNumber: true;
-      };
-    };
-  };
+  include: typeof INSPECTION_INCLUDE;
 }>;
 
 type ChecklistTemplateRecord = ChecklistTemplate;
@@ -293,6 +293,7 @@ function toPublicInspection(record: InspectionWithRelations): PublicInspection {
     createdAt: record.createdAt.toISOString(),
     id: record.id,
     inspectorId: record.inspectorId ?? undefined,
+    moduleCode: record.moduleCode ?? undefined,
     location:
       record.locationLatitude != null && record.locationLongitude != null
         ? {
@@ -306,6 +307,7 @@ function toPublicInspection(record: InspectionWithRelations): PublicInspection {
       code: record.office.code,
       id: record.office.id,
       lguId: record.office.lguId,
+      moduleCodes: record.office.moduleAssignments.map((a) => a.module.code),
       name: record.office.name,
     },
     permit: {
@@ -425,11 +427,23 @@ function buildScopedInspectionClauses(input: {
   actorUserId: string;
   jurisdictionScope: JurisdictionScope;
   lguId?: string;
+  /** Pre-fetched module codes for the inspector. When provided and non-empty,
+   *  adds a module code filter to prevent cross-module list leakage.
+   *  Mirrors the same guard in getScopedInspection. */
+  inspectorModuleCodes?: string[];
 }) {
   const clauses: Prisma.InspectionWhereInput[] = [];
 
   if (input.actorRole === "inspector") {
     clauses.push({ inspectorId: input.actorUserId });
+    if (input.inspectorModuleCodes && input.inspectorModuleCodes.length > 0) {
+      clauses.push({
+        OR: [
+          { moduleCode: null },
+          { moduleCode: { in: input.inspectorModuleCodes } },
+        ],
+      });
+    }
   }
 
   const { accessScope, officeIds, lguIds } = input.jurisdictionScope;
@@ -475,12 +489,14 @@ function buildScheduledWindowClause(input: { from?: string; to?: string }) {
 
 function buildInspectionWhere(
   input: ListInspectionsInput,
+  inspectorModuleCodes?: string[],
 ): Prisma.InspectionWhereInput {
   const clauses = buildScopedInspectionClauses({
     actorRole: input.actorRole,
     actorUserId: input.actorUserId,
     jurisdictionScope: input.jurisdictionScope,
     lguId: input.lguId,
+    inspectorModuleCodes,
   });
 
   if (input.businessId) {
@@ -501,6 +517,10 @@ function buildInspectionWhere(
 
   if (input.status) {
     clauses.push({ status: input.status });
+  }
+
+  if (input.moduleCode) {
+    clauses.push({ moduleCode: input.moduleCode.trim().toUpperCase() });
   }
 
   return clauses.length === 0 ? {} : { AND: clauses };
@@ -627,6 +647,65 @@ async function ensureInspectorCanOperateOffice(
   }
 }
 
+/**
+ * Returns the distinct module codes accessible to an inspector across all
+ * their office assignments. Used to gate both read and write operations.
+ */
+async function getInspectorModuleCodes(userId: string): Promise<string[]> {
+  const assignments = await prisma.userOfficeAssignment.findMany({
+    where: { userId },
+    select: {
+      office: {
+        select: {
+          moduleAssignments: {
+            select: { module: { select: { code: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  return [
+    ...new Set(
+      assignments.flatMap((a) =>
+        a.office.moduleAssignments.map((m) => m.module.code),
+      ),
+    ),
+  ];
+}
+
+/**
+ * Throws 403 when the inspector's office does not handle `moduleCode`.
+ * Should be called after `ensureInspectorCanOperateOffice` whenever an
+ * inspection carries a non-null moduleCode.
+ */
+async function ensureInspectorModuleAccess(
+  inspectorId: string,
+  moduleCode: string,
+  officeId: string,
+): Promise<void> {
+  const assignment = await prisma.userOfficeAssignment.findFirst({
+    where: {
+      userId: inspectorId,
+      officeId,
+      office: {
+        moduleAssignments: {
+          some: { module: { code: moduleCode } },
+        },
+      },
+    },
+    select: { id: true },
+  });
+
+  if (!assignment) {
+    throw new AppError(
+      403,
+      "INSPECTOR_MODULE_SCOPE_MISMATCH",
+      "Inspector is not authorized for this inspection's module",
+    );
+  }
+}
+
 async function listAdminNotificationRecipientIds(excludeUserId?: string) {
   const admins = await prisma.user.findMany({
     where: {
@@ -643,45 +722,40 @@ async function getScopedInspection(
   id: string,
   actorRole: AuthRole,
   actorUserId: string,
+  jurisdictionScope?: JurisdictionScope,
 ): Promise<InspectionWithRelations | null> {
-  return prisma.inspection.findFirst({
-    where: {
-      id,
-      ...(actorRole === "inspector"
+  let scopeClauses: Prisma.InspectionWhereInput = {};
+
+  if (actorRole === "inspector") {
+    const moduleCodes = await getInspectorModuleCodes(actorUserId);
+    scopeClauses = {
+      inspectorId: actorUserId,
+      office: { userAssignments: { some: { userId: actorUserId } } },
+      // If the inspector has module assignments, only show inspections for
+      // those modules. Inspections without a moduleCode (legacy) are always
+      // visible to avoid breaking older records.
+      ...(moduleCodes.length > 0
         ? {
-            inspectorId: actorUserId,
-            office: {
-              userAssignments: {
-                some: {
-                  userId: actorUserId,
-                },
-              },
-            },
+            OR: [
+              { moduleCode: null },
+              { moduleCode: { in: moduleCodes } },
+            ],
           }
         : {}),
-    },
-    include: {
-      business: {
-        select: {
-          businessName: true,
-          id: true,
-        },
-      },
-      office: {
-        select: {
-          code: true,
-          id: true,
-          lguId: true,
-          name: true,
-        },
-      },
-      permitRecord: {
-        select: {
-          id: true,
-          permitNumber: true,
-        },
-      },
-    },
+    };
+  } else if (jurisdictionScope) {
+    const { accessScope, officeIds, lguIds } = jurisdictionScope;
+    if (accessScope === "office" || accessScope === "assigned") {
+      scopeClauses = { officeId: { in: officeIds } };
+    } else if (accessScope === "lgu") {
+      scopeClauses = { office: { lguId: { in: lguIds } } };
+    }
+    // accessScope === "global": no additional WHERE restriction
+  }
+
+  return prisma.inspection.findFirst({
+    where: { id, ...scopeClauses },
+    include: INSPECTION_INCLUDE,
   });
 }
 
@@ -689,8 +763,14 @@ async function ensureAccessibleInspection(
   id: string,
   actorRole: AuthRole,
   actorUserId: string,
+  jurisdictionScope?: JurisdictionScope,
 ): Promise<InspectionWithRelations> {
-  const inspection = await getScopedInspection(id, actorRole, actorUserId);
+  const inspection = await getScopedInspection(
+    id,
+    actorRole,
+    actorUserId,
+    jurisdictionScope,
+  );
 
   if (!inspection) {
     throw new AppError(404, "INSPECTION_NOT_FOUND", "Inspection not found");
@@ -802,32 +882,15 @@ export async function listInspections(input: ListInspectionsInput): Promise<{
   data: PublicInspection[];
   meta: { limit: number; page: number; total: number };
 }> {
-  const where = buildInspectionWhere(input);
+  const inspectorModuleCodes =
+    input.actorRole === "inspector"
+      ? await getInspectorModuleCodes(input.actorUserId)
+      : undefined;
+  const where = buildInspectionWhere(input, inspectorModuleCodes);
   const [total, inspections] = await Promise.all([
     prisma.inspection.count({ where }),
     prisma.inspection.findMany({
-      include: {
-        business: {
-          select: {
-            businessName: true,
-            id: true,
-          },
-        },
-        office: {
-          select: {
-            code: true,
-            id: true,
-            lguId: true,
-            name: true,
-          },
-        },
-        permitRecord: {
-          select: {
-            id: true,
-            permitNumber: true,
-          },
-        },
-      },
+      include: INSPECTION_INCLUDE,
       orderBy: { scheduledAt: "asc" },
       skip: input.skip,
       take: input.limit,
@@ -845,15 +908,17 @@ export async function listInspections(input: ListInspectionsInput): Promise<{
   };
 }
 
-export async function getInspectionById(
-  id: string,
-  actorRole: AuthRole,
-  actorUserId: string,
-): Promise<PublicInspection> {
+export async function getInspectionById(input: {
+  id: string;
+  actorRole: AuthRole;
+  actorUserId: string;
+  jurisdictionScope?: JurisdictionScope;
+}): Promise<PublicInspection> {
   const inspection = await ensureAccessibleInspection(
-    id,
-    actorRole,
-    actorUserId,
+    input.id,
+    input.actorRole,
+    input.actorUserId,
+    input.jurisdictionScope,
   );
 
   return toPublicInspection(inspection);
@@ -881,40 +946,27 @@ export async function createInspection(
   if (input.inspectorId) {
     await ensureInspectionAssignee(input.inspectorId);
     await ensureInspectorCanOperateOffice(input.inspectorId, input.officeId);
+    if (input.moduleCode) {
+      await ensureInspectorModuleAccess(
+        input.inspectorId,
+        input.moduleCode.trim().toUpperCase(),
+        input.officeId,
+      );
+    }
   }
 
   const inspection = await prisma.inspection.create({
     data: {
       businessId: input.businessId,
       inspectorId: input.inspectorId ?? null,
+      moduleCode: input.moduleCode?.trim().toUpperCase() || null,
       officeId: input.officeId,
       ...buildLocationData(input),
       notes: input.notes?.trim() || null,
       permitRecordId: input.permitRecordId,
       scheduledAt: new Date(input.scheduledAt),
     },
-    include: {
-      business: {
-        select: {
-          businessName: true,
-          id: true,
-        },
-      },
-      office: {
-        select: {
-          code: true,
-          id: true,
-          lguId: true,
-          name: true,
-        },
-      },
-      permitRecord: {
-        select: {
-          id: true,
-          permitNumber: true,
-        },
-      },
-    },
+    include: INSPECTION_INCLUDE,
   });
 
   await recordAuditLog({
@@ -948,7 +1000,7 @@ export async function assignInspection(
 ): Promise<PublicInspection> {
   const inspection = await prisma.inspection.findUnique({
     where: { id: input.id },
-    select: { id: true, officeId: true },
+    select: { id: true, officeId: true, moduleCode: true },
   });
 
   if (!inspection) {
@@ -957,34 +1009,20 @@ export async function assignInspection(
 
   await ensureInspectionAssignee(input.inspectorId);
   await ensureInspectorCanOperateOffice(input.inspectorId, inspection.officeId);
+  if (inspection.moduleCode) {
+    await ensureInspectorModuleAccess(
+      input.inspectorId,
+      inspection.moduleCode,
+      inspection.officeId,
+    );
+  }
 
   const updatedInspection = await prisma.inspection.update({
     where: { id: input.id },
     data: {
       inspectorId: input.inspectorId,
     },
-    include: {
-      business: {
-        select: {
-          businessName: true,
-          id: true,
-        },
-      },
-      office: {
-        select: {
-          code: true,
-          id: true,
-          lguId: true,
-          name: true,
-        },
-      },
-      permitRecord: {
-        select: {
-          id: true,
-          permitNumber: true,
-        },
-      },
-    },
+    include: INSPECTION_INCLUDE,
   });
 
   await recordAuditLog({
@@ -1029,6 +1067,7 @@ export async function updateInspectionStatus(
     input.id,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   if (!inspection) {
@@ -1050,28 +1089,7 @@ export async function updateInspectionStatus(
           : inspection.startedAt,
       status: input.status,
     },
-    include: {
-      business: {
-        select: {
-          businessName: true,
-          id: true,
-        },
-      },
-      office: {
-        select: {
-          code: true,
-          id: true,
-          lguId: true,
-          name: true,
-        },
-      },
-      permitRecord: {
-        select: {
-          id: true,
-          permitNumber: true,
-        },
-      },
-    },
+    include: INSPECTION_INCLUDE,
   });
 
   await recordAuditLog({
@@ -1137,14 +1155,80 @@ export async function updateInspectionStatus(
   return toPublicInspection(updatedInspection);
 }
 
-export async function listChecklistTemplates(
-  module?: string,
-): Promise<PublicChecklistTemplate[]> {
+export async function listChecklistTemplates(input: {
+  actorRole: AuthRole;
+  actorUserId: string;
+  jurisdictionScope?: JurisdictionScope;
+  module?: string;
+}): Promise<PublicChecklistTemplate[]> {
+  let moduleCodes: string[] | undefined;
+
+  if (input.actorRole === "inspector") {
+    const assignments = await prisma.userOfficeAssignment.findMany({
+      where: { userId: input.actorUserId },
+      select: {
+        office: {
+          select: {
+            moduleAssignments: {
+              select: { module: { select: { code: true, isActive: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    const inspectorModuleCodes = [
+      ...new Set(
+        assignments.flatMap((a) =>
+          a.office.moduleAssignments
+            .filter((m) => m.module.isActive)
+            .map((m) => m.module.code),
+        ),
+      ),
+    ];
+
+    if (input.module) {
+      const upper = input.module.trim().toUpperCase();
+      if (
+        inspectorModuleCodes.length > 0 &&
+        !inspectorModuleCodes.includes(upper)
+      ) {
+        throw new AppError(
+          403,
+          "MODULE_ACCESS_DENIED",
+          "You are not assigned to the requested module",
+        );
+      }
+      moduleCodes = [upper];
+    } else {
+      moduleCodes =
+        inspectorModuleCodes.length > 0 ? inspectorModuleCodes : undefined;
+    }
+  } else if (input.module) {
+    moduleCodes = [input.module.trim().toUpperCase()];
+  }
+
+  // Build LGU scope clause: office/lgu-scoped roles see their LGU's templates
+  // plus globally shared templates (lguId IS NULL).
+  let lguScopeClause: Prisma.ChecklistTemplateWhereInput = {};
+  if (input.jurisdictionScope) {
+    const { accessScope, lguIds } = input.jurisdictionScope;
+    if (
+      (accessScope === "office" || accessScope === "lgu") &&
+      lguIds.length > 0
+    ) {
+      lguScopeClause = {
+        OR: [{ lguId: { in: lguIds } }, { lguId: null }],
+      };
+    }
+  }
+
   const templates = await prisma.checklistTemplate.findMany({
     where: {
-      ...(module
-        ? { module: { equals: module.trim(), mode: "insensitive" } }
+      ...(moduleCodes && moduleCodes.length > 0
+        ? { module: { in: moduleCodes } }
         : {}),
+      ...lguScopeClause,
       isActive: true,
     },
     orderBy: [{ module: "asc" }, { sortOrder: "asc" }, { title: "asc" }],
@@ -1153,15 +1237,21 @@ export async function listChecklistTemplates(
   return templates.map(toPublicChecklistTemplate);
 }
 
-export async function listInspectionChecklistResults(
-  inspectionId: string,
-  actorRole: AuthRole,
-  actorUserId: string,
-): Promise<PublicChecklistResult[]> {
-  await ensureAccessibleInspection(inspectionId, actorRole, actorUserId);
+export async function listInspectionChecklistResults(input: {
+  inspectionId: string;
+  actorRole: AuthRole;
+  actorUserId: string;
+  jurisdictionScope?: JurisdictionScope;
+}): Promise<PublicChecklistResult[]> {
+  await ensureAccessibleInspection(
+    input.inspectionId,
+    input.actorRole,
+    input.actorUserId,
+    input.jurisdictionScope,
+  );
 
   const results = await prisma.inspectionChecklistResult.findMany({
-    where: { inspectionId },
+    where: { inspectionId: input.inspectionId },
     include: {
       template: {
         select: {
@@ -1182,16 +1272,44 @@ export async function upsertInspectionChecklistResult(input: {
   actorRole: AuthRole;
   actorUserId: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
   remarks?: string;
   status: ChecklistResultStatus;
   templateId: string;
 }): Promise<PublicChecklistResult> {
-  await ensureAccessibleInspection(
+  const inspection = await ensureAccessibleInspection(
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
   const template = await ensureChecklistTemplate(input.templateId);
+
+  // Prefer an exact inspection-level moduleCode match; fall back to the
+  // office-level check for legacy inspections that have no moduleCode yet.
+  if (inspection.moduleCode) {
+    if (template.module !== inspection.moduleCode) {
+      throw new AppError(
+        400,
+        "TEMPLATE_MODULE_MISMATCH",
+        "Checklist template does not belong to this inspection's module",
+      );
+    }
+  } else {
+    const officeModuleCodes = inspection.office.moduleAssignments.map(
+      (a) => a.module.code,
+    );
+    if (
+      officeModuleCodes.length > 0 &&
+      !officeModuleCodes.includes(template.module)
+    ) {
+      throw new AppError(
+        400,
+        "TEMPLATE_MODULE_MISMATCH",
+        "Checklist template does not belong to the inspection office's module",
+      );
+    }
+  }
 
   const templateSnapshot = {
     id: template.id,
@@ -1251,12 +1369,14 @@ export async function listFindings(input: {
   actorRole: AuthRole;
   actorUserId: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
   severity?: FindingSeverity;
 }): Promise<PublicFinding[]> {
   await ensureAccessibleInspection(
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   const findings = await prisma.finding.findMany({
@@ -1279,6 +1399,7 @@ export async function createFinding(input: {
   description: string;
   dueDate?: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
   latitude?: number;
   longitude?: number;
   severity: FindingSeverity;
@@ -1288,6 +1409,7 @@ export async function createFinding(input: {
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   if (input.checklistResultId) {
@@ -1342,11 +1464,13 @@ export async function resolveFinding(input: {
   actorUserId: string;
   findingId: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
 }): Promise<PublicFinding> {
   await ensureAccessibleInspection(
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   const finding = await prisma.finding.findFirst({
@@ -1388,11 +1512,16 @@ export async function getInspectionSummary(input: {
   officeId?: string;
   to?: string;
 }): Promise<PublicInspectionSummary> {
+  const inspectorModuleCodes =
+    input.actorRole === "inspector"
+      ? await getInspectorModuleCodes(input.actorUserId)
+      : undefined;
   const clauses = buildScopedInspectionClauses({
     actorRole: input.actorRole,
     actorUserId: input.actorUserId,
     jurisdictionScope: input.jurisdictionScope,
     lguId: input.lguId,
+    inspectorModuleCodes,
   });
   const scheduledWindowClause = buildScheduledWindowClause({
     from: input.from,
@@ -1449,11 +1578,16 @@ export async function getInspectionsByOffice(input: {
   lguId?: string;
   to?: string;
 }): Promise<InspectionsByOfficeRow[]> {
+  const inspectorModuleCodes =
+    input.actorRole === "inspector"
+      ? await getInspectorModuleCodes(input.actorUserId)
+      : undefined;
   const clauses = buildScopedInspectionClauses({
     actorRole: input.actorRole,
     actorUserId: input.actorUserId,
     jurisdictionScope: input.jurisdictionScope,
     lguId: input.lguId,
+    inspectorModuleCodes,
   });
   const scheduledWindowClause = buildScheduledWindowClause({
     from: input.from,
@@ -1533,11 +1667,16 @@ export async function listInspectionMapPoints(input: {
   status?: Inspection["status"];
   to?: string;
 }): Promise<PublicInspectionMapPoint[]> {
+  const inspectorModuleCodes =
+    input.actorRole === "inspector"
+      ? await getInspectorModuleCodes(input.actorUserId)
+      : undefined;
   const clauses = buildScopedInspectionClauses({
     actorRole: input.actorRole,
     actorUserId: input.actorUserId,
     jurisdictionScope: input.jurisdictionScope,
     lguId: input.lguId,
+    inspectorModuleCodes,
   });
   const scheduledWindowClause = buildScheduledWindowClause({
     from: input.from,
@@ -1596,11 +1735,13 @@ export async function listInspectionHistory(input: {
   actorRole: AuthRole;
   actorUserId: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
 }): Promise<PublicInspectionHistoryEvent[]> {
   const inspection = await ensureAccessibleInspection(
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   const [attachments, checklistResults, findings] = await Promise.all([
@@ -1701,11 +1842,13 @@ export async function listAttachments(input: {
   actorUserId: string;
   findingId?: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
 }): Promise<PublicAttachment[]> {
   await ensureAccessibleInspection(
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   if (input.findingId) {
@@ -1732,6 +1875,7 @@ export async function createAttachment(input: {
   fileSizeBytes: number;
   findingId?: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
   latitude?: number;
   longitude?: number;
   mimeType: string;
@@ -1741,6 +1885,7 @@ export async function createAttachment(input: {
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   if (input.findingId) {
@@ -1779,11 +1924,13 @@ export async function createAttachmentUploadIntent(input: {
   fileName: string;
   findingId?: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
 }): Promise<PublicAttachmentUploadIntent> {
   await ensureAccessibleInspection(
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   if (input.findingId) {
@@ -1804,11 +1951,13 @@ export async function createAttachmentDownloadIntent(input: {
   actorUserId: string;
   attachmentId: string;
   inspectionId: string;
+  jurisdictionScope?: JurisdictionScope;
 }): Promise<PublicAttachmentDownloadIntent> {
   await ensureAccessibleInspection(
     input.inspectionId,
     input.actorRole,
     input.actorUserId,
+    input.jurisdictionScope,
   );
 
   const attachment = await prisma.attachment.findUnique({
@@ -1889,6 +2038,7 @@ export async function requestReinspection(
 export interface BulkCreateInspectionItem {
   businessId: string;
   inspectorId?: string;
+  moduleCode?: string;
   notes?: string;
   officeId: string;
   permitRecordId: string;
@@ -1914,23 +2064,37 @@ export async function bulkCreateInspections(input: {
     );
   }
 
+  // Pre-flight validation for each item (mirrors createInspection guards)
+  for (const item of input.items) {
+    await ensurePermitMatchesBusiness(item.businessId, item.permitRecordId);
+    await ensureOfficeExists(item.officeId);
+    if (item.inspectorId) {
+      await ensureInspectionAssignee(item.inspectorId);
+      await ensureInspectorCanOperateOffice(item.inspectorId, item.officeId);
+      if (item.moduleCode) {
+        await ensureInspectorModuleAccess(
+          item.inspectorId,
+          item.moduleCode.trim().toUpperCase(),
+          item.officeId,
+        );
+      }
+    }
+  }
+
   const created = await prisma.$transaction(
     input.items.map((item) =>
       prisma.inspection.create({
         data: {
           businessId: item.businessId,
           inspectorId: item.inspectorId ?? null,
+          moduleCode: item.moduleCode?.trim().toUpperCase() ?? null,
           notes: item.notes?.trim() ?? null,
           officeId: item.officeId,
           permitRecordId: item.permitRecordId,
           scheduledAt: new Date(item.scheduledAt),
           status: "SCHEDULED",
         },
-        include: {
-          business: { select: { businessName: true, id: true } },
-          office: { select: { code: true, id: true, lguId: true, name: true } },
-          permitRecord: { select: { id: true, permitNumber: true } },
-        },
+        include: INSPECTION_INCLUDE,
       }),
     ),
   );
@@ -1979,6 +2143,42 @@ export async function bulkAssignInspections(input: {
 
   if (!inspector) {
     throw new AppError(404, "NOT_FOUND", "Inspector not found");
+  }
+
+  if (inspector.role !== ("INSPECTOR" satisfies UserRole)) {
+    throw new AppError(
+      400,
+      "INVALID_ROLE",
+      "The specified user is not an inspector",
+    );
+  }
+
+  // Validate the inspector is assigned to every office touched by these inspections
+  const targetInspections = await prisma.inspection.findMany({
+    where: { id: { in: input.inspectionIds } },
+    select: { officeId: true, moduleCode: true },
+  });
+
+  const uniqueOfficeIds = [
+    ...new Set(targetInspections.map((i) => i.officeId)),
+  ];
+
+  for (const officeId of uniqueOfficeIds) {
+    await ensureInspectorCanOperateOffice(input.inspectorId, officeId);
+  }
+
+  // Verify module compatibility for every unique (officeId, moduleCode) pair.
+  const seenPairs = new Set<string>();
+  for (const inspection of targetInspections) {
+    if (!inspection.moduleCode) continue;
+    const key = `${inspection.officeId}:${inspection.moduleCode}`;
+    if (seenPairs.has(key)) continue;
+    seenPairs.add(key);
+    await ensureInspectorModuleAccess(
+      input.inspectorId,
+      inspection.moduleCode,
+      inspection.officeId,
+    );
   }
 
   const result = await prisma.inspection.updateMany({

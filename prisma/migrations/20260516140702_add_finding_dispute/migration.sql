@@ -17,18 +17,8 @@ ALTER TYPE "NotificationChannel" ADD VALUE 'PUSH';
 ALTER TABLE "ChecklistTemplate" ADD COLUMN     "version" INTEGER NOT NULL DEFAULT 1;
 
 -- AlterTable
-ALTER TABLE "FireSafetyCertificate" ADD COLUMN     "verificationUrl" TEXT;
-
--- AlterTable
 ALTER TABLE "InspectionChecklistResult" ADD COLUMN     "templateSnapshot" JSONB,
 ADD COLUMN     "templateVersion" INTEGER;
-
--- AlterTable
-ALTER TABLE "IssueReport" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "PaymentRecord" ADD COLUMN     "receiptNumber" TEXT,
-ALTER COLUMN "updatedAt" DROP DEFAULT;
 
 -- CreateTable
 CREATE TABLE "CorrectiveActionPlan" (
@@ -89,9 +79,6 @@ CREATE INDEX "FindingDispute_status_idx" ON "FindingDispute"("status");
 
 -- CreateIndex
 CREATE INDEX "FindingDispute_disputedByUserId_idx" ON "FindingDispute"("disputedByUserId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "PaymentRecord_receiptNumber_key" ON "PaymentRecord"("receiptNumber");
 
 -- AddForeignKey
 ALTER TABLE "CorrectiveActionPlan" ADD CONSTRAINT "CorrectiveActionPlan_findingId_fkey" FOREIGN KEY ("findingId") REFERENCES "Finding"("id") ON DELETE CASCADE ON UPDATE CASCADE;

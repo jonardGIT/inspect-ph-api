@@ -37,3 +37,6 @@ CREATE UNIQUE INDEX "IssueReport_reportNumber_key" ON "IssueReport"("reportNumbe
 CREATE INDEX "IssueReport_category_idx" ON "IssueReport"("category");
 CREATE INDEX "IssueReport_status_idx" ON "IssueReport"("status");
 CREATE INDEX "IssueReport_createdAt_idx" ON "IssueReport"("createdAt");
+
+-- Drop DEFAULT on updatedAt (set by add_finding_dispute)
+ALTER TABLE "IssueReport" ALTER COLUMN "updatedAt" DROP DEFAULT;

@@ -37,6 +37,10 @@ export interface PublicAuditLog {
     | "recognition.consent_granted"
     | "recognition.rejected"
     | "recognition.requested"
+    | "national.business_name_lookup"
+    | "national.disaster_alert_fetch"
+    | "national.pcn_verified"
+    | "national.tin_verified"
     | "webhook_endpoint.created"
     | "webhook_endpoint.deleted";
   actor?: {
@@ -63,6 +67,7 @@ export interface PublicAuditLog {
     | "checklist_template"
     | "oauth_client"
     | "recognition_request"
+    | "national_verification"
     | "payment_anomaly_flag"
     | "permit"
     | "user"

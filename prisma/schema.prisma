@@ -38,6 +38,7 @@ model User {
   requestedRecognitions     CrossLguRecognitionRequest[] @relation("RecognitionRequester")
   consentedRecognitions     CrossLguRecognitionRequest[] @relation("RecognitionConsentOwner")
   resolvedRecognitions      CrossLguRecognitionRequest[] @relation("RecognitionResolver")
+  nationalVerifications     NationalVerificationRecord[] @relation("VerificationRequester")
 
   @@index([lguId])
   @@index([businessId])
@@ -206,6 +207,7 @@ model BusinessEstablishment {
   ownerUsers              User[]         @relation("BusinessOwner")
   permitRecords           PermitRecord[]
   caps                    CorrectiveActionPlan[]
+  nationalVerifications   NationalVerificationRecord[]
 
   @@index([businessName])
   @@index([barangay, city])
@@ -242,6 +244,7 @@ model Inspection {
   permitRecordId         String
   officeId               String
   inspectorId            String?
+  moduleCode             String?
   scheduledAt            DateTime
   startedAt              DateTime?
   completedAt            DateTime?
@@ -266,6 +269,7 @@ model Inspection {
   @@index([permitRecordId])
   @@index([officeId])
   @@index([inspectorId])
+  @@index([moduleCode])
   @@index([status, scheduledAt])
 }
 
@@ -761,6 +765,39 @@ enum CrossLguRecognitionStatus {
   APPROVED
   REJECTED
   EXPIRED
+}
+
+// ---------------------------------------------------------------------------
+// National integrations — verification cache
+// ---------------------------------------------------------------------------
+
+model NationalVerificationRecord {
+  id                String                   @id @default(uuid())
+  kind              NationalVerificationKind
+  referenceValue    String
+  businessId        String?
+  requestedByUserId String?
+  result            Json
+  verified          Boolean
+  providerSource    String
+  expiresAt         DateTime?
+  createdAt         DateTime                 @default(now())
+  business          BusinessEstablishment?   @relation(fields: [businessId], references: [id])
+  requestedByUser   User?                    @relation("VerificationRequester", fields: [requestedByUserId], references: [id])
+
+  @@index([kind, referenceValue])
+  @@index([businessId])
+  @@index([requestedByUserId])
+  @@index([createdAt])
+}
+
+enum NationalVerificationKind {
+  PCN
+  TIN
+  DTI_NAME
+  SEC_NAME
+  LRA_PARCEL
+  DISASTER_ALERT
 }
 
 enum DataSubjectRequestType {

@@ -280,13 +280,18 @@ router.get(
 router.get(
   "/checklist-templates",
   authenticate,
+  requireJurisdiction(),
   [query("module").optional().isString(), validateRequestMiddleware],
   asyncHandler(async (request, response) => {
-    const templates = await listChecklistTemplates(
-      typeof request.query.module === "string"
-        ? request.query.module
-        : undefined,
-    );
+    const templates = await listChecklistTemplates({
+      actorRole: request.auth!.role,
+      actorUserId: request.auth!.sub,
+      jurisdictionScope: request.jurisdictionScope,
+      module:
+        typeof request.query.module === "string"
+          ? request.query.module
+          : undefined,
+    });
 
     response.json({ data: templates });
   }),
@@ -326,6 +331,7 @@ router.get(
       .isUUID()
       .withMessage("lguId must be a valid UUID"),
     query("status").optional().isString(),
+    query("moduleCode").optional().isString(),
     validateRequestMiddleware,
   ],
   asyncHandler(async (request, response) => {
@@ -356,6 +362,10 @@ router.get(
       lguId:
         typeof request.query.lguId === "string"
           ? request.query.lguId
+          : undefined,
+      moduleCode:
+        typeof request.query.moduleCode === "string"
+          ? request.query.moduleCode
           : undefined,
       officeId:
         typeof request.query.officeId === "string"
@@ -458,6 +468,7 @@ router.get(
 router.get(
   "/:id",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     validateRequestMiddleware,
@@ -467,11 +478,12 @@ router.get(
       throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
     }
 
-    const inspection = await getInspectionById(
-      String(request.params.id),
-      request.auth.role,
-      request.auth.sub,
-    );
+    const inspection = await getInspectionById({
+      id: String(request.params.id),
+      actorRole: request.auth.role,
+      actorUserId: request.auth.sub,
+      jurisdictionScope: request.jurisdictionScope,
+    });
 
     response.json({ data: inspection });
   }),
@@ -480,6 +492,7 @@ router.get(
 router.get(
   "/:id/history",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     validateRequestMiddleware,
@@ -493,6 +506,7 @@ router.get(
       actorRole: request.auth.role,
       actorUserId: request.auth.sub,
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
     });
 
     response.json({ data: history });
@@ -586,6 +600,7 @@ router.patch(
 router.patch(
   "/:id/status",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     body("status").isString().withMessage("status is required"),
@@ -606,6 +621,7 @@ router.patch(
       actorRole: request.auth.role,
       actorUserId: request.auth.sub,
       id: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
       latitude:
         typeof request.body.latitude === "number"
           ? request.body.latitude
@@ -626,6 +642,7 @@ router.patch(
 router.get(
   "/:id/checklist-results",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     validateRequestMiddleware,
@@ -635,11 +652,12 @@ router.get(
       throw new AppError(401, "UNAUTHORIZED", "Authentication failed");
     }
 
-    const results = await listInspectionChecklistResults(
-      String(request.params.id),
-      request.auth.role,
-      request.auth.sub,
-    );
+    const results = await listInspectionChecklistResults({
+      inspectionId: String(request.params.id),
+      actorRole: request.auth.role,
+      actorUserId: request.auth.sub,
+      jurisdictionScope: request.jurisdictionScope,
+    });
 
     response.json({ data: results });
   }),
@@ -648,6 +666,7 @@ router.get(
 router.put(
   "/:id/checklist-results/:templateId",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     param("templateId").isUUID().withMessage("templateId must be a valid UUID"),
@@ -664,6 +683,7 @@ router.put(
       actorRole: request.auth.role,
       actorUserId: request.auth.sub,
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
       remarks:
         typeof request.body.remarks === "string"
           ? request.body.remarks
@@ -679,6 +699,7 @@ router.put(
 router.get(
   "/:id/findings",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     query("severity").optional().isString(),
@@ -693,6 +714,7 @@ router.get(
       actorRole: request.auth.role,
       actorUserId: request.auth.sub,
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
       severity: parseFindingSeverity(request.query.severity),
     });
 
@@ -703,6 +725,7 @@ router.get(
 router.post(
   "/:id/attachments/upload-intents",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     body("fileName")
@@ -730,6 +753,7 @@ router.post(
           ? request.body.findingId
           : undefined,
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
     });
 
     response.status(201).json({ data: intent });
@@ -739,6 +763,7 @@ router.post(
 router.get(
   "/:id/attachments/:attachmentId/download-intent",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     param("attachmentId")
@@ -756,6 +781,7 @@ router.get(
       actorUserId: request.auth.sub,
       attachmentId: String(request.params.attachmentId),
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
     });
 
     response.json({ data: intent });
@@ -765,6 +791,7 @@ router.get(
 router.get(
   "/:id/attachments",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     query("findingId")
@@ -786,6 +813,7 @@ router.get(
           ? request.query.findingId
           : undefined,
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
     });
 
     response.json({ data: attachments });
@@ -795,6 +823,7 @@ router.get(
 router.post(
   "/:id/findings",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     body("severity").isString().withMessage("severity is required"),
@@ -842,6 +871,7 @@ router.post(
           ? request.body.dueDate
           : undefined,
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
       latitude:
         typeof request.body.latitude === "number"
           ? request.body.latitude
@@ -861,6 +891,7 @@ router.post(
 router.post(
   "/:id/attachments",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     body("fileName")
@@ -915,6 +946,7 @@ router.post(
           ? request.body.findingId
           : undefined,
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
       latitude:
         typeof request.body.latitude === "number"
           ? request.body.latitude
@@ -934,6 +966,7 @@ router.post(
 router.patch(
   "/:id/findings/:findingId/resolve",
   authenticate,
+  requireJurisdiction(),
   [
     param("id").isUUID().withMessage("id must be a valid UUID"),
     param("findingId").isUUID().withMessage("findingId must be a valid UUID"),
@@ -949,6 +982,7 @@ router.patch(
       actorUserId: request.auth.sub,
       findingId: String(request.params.findingId),
       inspectionId: String(request.params.id),
+      jurisdictionScope: request.jurisdictionScope,
     });
 
     response.json({ data: finding });
