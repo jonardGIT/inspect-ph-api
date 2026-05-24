@@ -2,9 +2,11 @@ import request from "supertest";
 
 const mockPaymentCount = jest.fn();
 const mockPaymentCreate = jest.fn();
+const mockPaymentFindFirst = jest.fn();
 const mockPaymentFindMany = jest.fn();
 const mockPaymentFindUnique = jest.fn();
 const mockPaymentUpdate = jest.fn();
+const mockInspectionFindFirst = jest.fn();
 const mockPermitFindUnique = jest.fn();
 const mockAuditLogCreate = jest.fn();
 const mockCreateCheckoutSession = jest.fn();
@@ -18,9 +20,13 @@ jest.mock("../lib/prisma.js", () => ({
     paymentRecord: {
       count: mockPaymentCount,
       create: mockPaymentCreate,
+      findFirst: mockPaymentFindFirst,
       findMany: mockPaymentFindMany,
       findUnique: mockPaymentFindUnique,
       update: mockPaymentUpdate,
+    },
+    inspection: {
+      findFirst: mockInspectionFindFirst,
     },
     permitRecord: {
       findUnique: mockPermitFindUnique,
@@ -46,6 +52,9 @@ describe("Payment routes", () => {
     process.env.JWT_EXPIRES_IN = "15m";
     process.env.JWT_REFRESH_EXPIRES_IN = "7d";
     mockAuditLogCreate.mockResolvedValue({ id: "audit-1" });
+    mockPaymentCount.mockResolvedValue(0);
+    mockPaymentFindFirst.mockResolvedValue(null);
+    mockInspectionFindFirst.mockResolvedValue(null);
   });
 
   it("lists payments for authenticated admins", async () => {
@@ -113,6 +122,7 @@ describe("Payment routes", () => {
       failureReason: null,
       id: "payment-1",
       paidAt: null,
+      permitRecordId: "permit-1",
       permitRecord: {
         business: {
           businessName: "North Star Trading",

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "fs/promises";
 import os from "os";
 import path from "path";
+import sharp from "sharp";
 
 import request from "supertest";
 
@@ -12,6 +13,19 @@ import {
 
 describe("Upload routes", () => {
   let uploadsDir: string;
+
+  async function createJpegPayload() {
+    return sharp({
+      create: {
+        background: { alpha: 1, b: 32, g: 64, r: 96 },
+        channels: 3,
+        height: 2,
+        width: 2,
+      },
+    })
+      .jpeg()
+      .toBuffer();
+  }
 
   beforeEach(async () => {
     process.env.DATABASE_URL =
@@ -29,7 +43,7 @@ describe("Upload routes", () => {
   it("stores uploaded bytes for a valid local upload token", async () => {
     const storageKey = "inspections/inspection-1/2026-05-13/evidence.jpg";
     const token = signLocalUploadToken({ storageKey });
-    const payload = Buffer.from("binary-image-payload");
+    const payload = await createJpegPayload();
 
     const response = await request(app)
       .put(`/api/v1/uploads/local/${token}`)
@@ -39,7 +53,7 @@ describe("Upload routes", () => {
     expect(response.status).toBe(201);
     expect(response.body).toEqual({
       data: {
-        fileSizeBytes: payload.length,
+        fileSizeBytes: expect.any(Number),
         mimeType: "image/jpeg",
         storageKey,
         uploaded: true,
@@ -48,7 +62,8 @@ describe("Upload routes", () => {
 
     const savedFile = await readFile(path.join(uploadsDir, storageKey));
 
-    expect(savedFile.equals(payload)).toBe(true);
+    expect(savedFile.length).toBe(response.body.data.fileSizeBytes);
+    expect(savedFile.length).toBeGreaterThan(0);
   });
 
   it("rejects invalid upload tokens", async () => {
@@ -69,7 +84,7 @@ describe("Upload routes", () => {
 
   it("serves stored bytes for a valid local download token", async () => {
     const storageKey = "inspections/inspection-1/2026-05-13/evidence.jpg";
-    const payload = Buffer.from("binary-image-payload");
+    const payload = await createJpegPayload();
     const uploadToken = signLocalUploadToken({ storageKey });
     const downloadToken = signLocalDownloadToken({
       fileName: "evidence.jpg",
@@ -86,10 +101,11 @@ describe("Upload routes", () => {
     const response = await request(app).get(
       `/api/v1/uploads/local/${downloadToken}`,
     );
+    const savedFile = await readFile(path.join(uploadsDir, storageKey));
 
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("image/jpeg");
-    expect(Buffer.from(response.body).equals(payload)).toBe(true);
+    expect(Buffer.from(response.body).equals(savedFile)).toBe(true);
   });
 
   it("rejects invalid download tokens", async () => {

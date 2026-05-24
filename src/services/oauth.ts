@@ -52,9 +52,7 @@ export interface RegisterClientInput {
   scopes: string[];
 }
 
-export async function registerOAuthClient(
-  input: RegisterClientInput,
-): Promise<{
+export async function registerOAuthClient(input: RegisterClientInput): Promise<{
   clientId: string;
   clientSecret: string;
   record: OAuthClientPublic;
@@ -179,9 +177,17 @@ export interface CreateAuthCodeInput {
   userId: string; // the business owner granting consent
 }
 
-export async function createAuthorizationCode(
-  input: CreateAuthCodeInput,
-): Promise<{ code: string; redirectUri: string }> {
+export interface ValidatedOAuthAuthorizationRequest {
+  clientId: string;
+  grantedScopes: string[];
+  redirectUri: string;
+}
+
+export async function validateOAuthAuthorizationRequest(input: {
+  clientId: string;
+  redirectUri: string;
+  requestedScope: string[];
+}): Promise<ValidatedOAuthAuthorizationRequest> {
   const client = await prisma.oAuthClient.findUnique({
     where: { clientId: input.clientId },
   });
@@ -190,7 +196,6 @@ export async function createAuthorizationCode(
     throw new AppError(400, "INVALID_CLIENT", "Unknown or inactive client");
   }
 
-  // redirect_uri must match registered value
   if (client.redirectUri !== input.redirectUri) {
     throw new AppError(
       400,
@@ -199,9 +204,8 @@ export async function createAuthorizationCode(
     );
   }
 
-  // Only allow scopes the client is registered for
-  const grantedScopes = input.requestedScope.filter((s) =>
-    client.scopes.includes(s),
+  const grantedScopes = input.requestedScope.filter((scope) =>
+    client.scopes.includes(scope),
   );
 
   if (grantedScopes.length === 0) {
@@ -212,21 +216,37 @@ export async function createAuthorizationCode(
     );
   }
 
+  return {
+    clientId: client.id,
+    grantedScopes,
+    redirectUri: client.redirectUri,
+  };
+}
+
+export async function createAuthorizationCode(
+  input: CreateAuthCodeInput,
+): Promise<{ code: string; redirectUri: string }> {
+  const validatedRequest = await validateOAuthAuthorizationRequest({
+    clientId: input.clientId,
+    redirectUri: input.redirectUri,
+    requestedScope: input.requestedScope,
+  });
+
   const code = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
   await prisma.oAuthAuthorizationCode.create({
     data: {
       code,
-      clientId: client.id,
+      clientId: validatedRequest.clientId,
       expiresAt,
-      redirectUri: input.redirectUri,
-      scope: grantedScopes,
+      redirectUri: validatedRequest.redirectUri,
+      scope: validatedRequest.grantedScopes,
       userId: input.userId,
     },
   });
 
-  return { code, redirectUri: input.redirectUri };
+  return { code, redirectUri: validatedRequest.redirectUri };
 }
 
 // ---------------------------------------------------------------------------

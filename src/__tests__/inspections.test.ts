@@ -35,6 +35,7 @@ const mockFindingUpdate = createMock<Promise<unknown>>();
 const mockOfficeFindUnique = createMock<Promise<unknown>>();
 const mockPermitFindUnique = createMock<Promise<unknown>>();
 const mockUserOfficeAssignmentFindFirst = createMock<Promise<unknown>>();
+const mockUserOfficeAssignmentFindMany = createMock<Promise<unknown[]>>();
 const mockUserFindFirst = createMock<Promise<unknown>>();
 const mockUserFindMany = createMock<Promise<unknown[]>>();
 const mockUserFindUnique = createMock<Promise<unknown>>();
@@ -94,6 +95,7 @@ jest.mock("../lib/prisma.js", () => ({
     },
     userOfficeAssignment: {
       findFirst: mockUserOfficeAssignmentFindFirst,
+      findMany: mockUserOfficeAssignmentFindMany,
     },
   },
 }));
@@ -126,6 +128,13 @@ describe("Inspection routes", () => {
       ],
     });
     mockUserOfficeAssignmentFindFirst.mockResolvedValue({ id: "assignment-1" });
+    mockUserOfficeAssignmentFindMany.mockResolvedValue([
+      {
+        office: {
+          moduleAssignments: [],
+        },
+      },
+    ]);
     mockUserFindMany.mockResolvedValue([]);
     process.env.JWT_SECRET = "test-secret";
     process.env.JWT_EXPIRES_IN = "15m";
@@ -151,6 +160,7 @@ describe("Inspection routes", () => {
           code: "BPLO-HQ",
           id: "office-1",
           lguId: "lgu-1",
+          moduleAssignments: [],
           name: "BPLO Headquarters",
         },
         permitRecord: {
@@ -186,6 +196,7 @@ describe("Inspection routes", () => {
         code: "BPLO-HQ",
         id: "office-1",
         lguId: "lgu-1",
+        moduleCodes: [],
         name: "BPLO Headquarters",
       },
       permit: {
@@ -231,6 +242,7 @@ describe("Inspection routes", () => {
           code: "BPLO-HQ",
           id: "office-1",
           lguId: "11111111-1111-4111-8111-111111111111",
+          moduleAssignments: [],
           name: "BPLO Headquarters",
         },
         scheduledAt,
@@ -339,6 +351,7 @@ describe("Inspection routes", () => {
         code: "BPLO-HQ",
         id: "office-1",
         lguId: "lgu-1",
+        moduleAssignments: [],
         name: "BPLO Headquarters",
       },
       permitRecord: {
@@ -398,6 +411,7 @@ describe("Inspection routes", () => {
         code: "BPLO-HQ",
         id: "office-1",
         lguId: "lgu-1",
+        moduleAssignments: [],
         name: "BPLO Headquarters",
       },
       permitRecord: {
@@ -534,6 +548,7 @@ describe("Inspection routes", () => {
         code: "BPLO-HQ",
         id: "55555555-5555-4555-8555-555555555555",
         lguId: "lgu-1",
+        moduleAssignments: [],
         name: "BPLO Headquarters",
       },
       permitRecord: {
@@ -574,6 +589,7 @@ describe("Inspection routes", () => {
       code: "BPLO-HQ",
       id: "55555555-5555-4555-8555-555555555555",
       lguId: "lgu-1",
+      moduleCodes: [],
       name: "BPLO Headquarters",
     });
     expect(response.body.data.status).toBe("scheduled");
@@ -602,6 +618,7 @@ describe("Inspection routes", () => {
         locationAccuracyMeters: 6,
         locationLatitude: 17.6132,
         locationLongitude: 121.727,
+        moduleCode: null,
         notes: "Initial BPLO visit",
         officeId: "55555555-5555-4555-8555-555555555555",
         permitRecordId: "44444444-4444-4444-8444-444444444444",
@@ -619,6 +636,9 @@ describe("Inspection routes", () => {
             code: true,
             id: true,
             lguId: true,
+            moduleAssignments: {
+              select: { module: { select: { code: true } } },
+            },
             name: true,
           },
         },
@@ -638,6 +658,7 @@ describe("Inspection routes", () => {
     mockInspectionFindUnique.mockResolvedValue({
       id: "33333333-3333-4333-8333-333333333333",
       officeId: "office-1",
+      moduleCode: null,
     });
     mockUserFindFirst.mockResolvedValue({
       id: "22222222-2222-4222-8222-222222222222",
@@ -656,6 +677,7 @@ describe("Inspection routes", () => {
         code: "BPLO-HQ",
         id: "office-1",
         lguId: "lgu-1",
+        moduleAssignments: [],
         name: "BPLO Headquarters",
       },
       permitRecord: {
@@ -728,6 +750,7 @@ describe("Inspection routes", () => {
         code: "BPLO-HQ",
         id: "office-1",
         lguId: "lgu-1",
+        moduleAssignments: [],
         name: "BPLO Headquarters",
       },
       permitRecord: {
@@ -756,6 +779,7 @@ describe("Inspection routes", () => {
         code: "BPLO-HQ",
         id: "office-1",
         lguId: "lgu-1",
+        moduleAssignments: [],
         name: "BPLO Headquarters",
       },
       permitRecord: {
@@ -1006,6 +1030,13 @@ describe("Inspection routes", () => {
       id: "33333333-3333-4333-8333-333333333333",
       inspectorId: "22222222-2222-4222-8222-222222222222",
       notes: null,
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        moduleAssignments: [],
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -1016,8 +1047,14 @@ describe("Inspection routes", () => {
       updatedAt: createdAt,
     });
     mockChecklistTemplateFindUnique.mockResolvedValue({
+      code: "BPLO-FACADE",
+      description: "Facade and signage compliance",
       id: "55555555-5555-4555-8555-555555555555",
       isActive: true,
+      module: "BPLO",
+      sortOrder: 1,
+      title: "Facade Check",
+      version: 3,
     });
     mockChecklistResultUpsert.mockResolvedValue({
       createdAt,
@@ -1052,6 +1089,16 @@ describe("Inspection routes", () => {
         remarks: "Compliant facade",
         status: "PASS",
         templateId: "55555555-5555-4555-8555-555555555555",
+        templateSnapshot: {
+          code: "BPLO-FACADE",
+          description: "Facade and signage compliance",
+          id: "55555555-5555-4555-8555-555555555555",
+          module: "BPLO",
+          sortOrder: 1,
+          title: "Facade Check",
+          version: 3,
+        },
+        templateVersion: 3,
       },
       include: {
         template: {
@@ -1089,6 +1136,13 @@ describe("Inspection routes", () => {
       id: "33333333-3333-4333-8333-333333333333",
       inspectorId: "22222222-2222-4222-8222-222222222222",
       notes: null,
+      office: {
+        code: "BPLO-HQ",
+        id: "office-1",
+        lguId: "lgu-1",
+        moduleAssignments: [],
+        name: "BPLO Headquarters",
+      },
       permitRecord: {
         id: "44444444-4444-4444-8444-444444444444",
         permitNumber: "BPLO-2026-0001",
@@ -1113,6 +1167,11 @@ describe("Inspection routes", () => {
       severity: "HIGH",
       title: "Damaged Signage",
       updatedAt: createdAt,
+    });
+    mockInspectionFindUnique.mockResolvedValue({
+      office: {
+        lguId: "lgu-1",
+      },
     });
 
     const response = await request(app)

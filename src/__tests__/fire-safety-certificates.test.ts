@@ -316,12 +316,14 @@ describe("Fire safety certificate routes", () => {
     expect(response.body.data.certificateNumber).toBe("FSIC-DEV-2026-0002");
     expect(mockCertificateCreate).toHaveBeenCalledWith({
       data: {
-        certificateNumber: expect.any(String),
+        certificateNumber: "FSIC-2026-FIRE-HQ-0002",
         expiresAt: new Date("2027-05-17T13:30:00.000Z"),
         inspectionId: "62364cb8-8d0c-4185-b648-ee8d4f114594",
         issuedAt: new Date("2026-05-17T13:30:00.000Z"),
         remarks: "Created from the API test",
         status: "ISSUED",
+        verificationUrl:
+          "https://api.inspectph.gov.ph/api/v1/fire-safety-certificates/public/FSIC-2026-FIRE-HQ-0002/verify",
       },
       include: {
         inspection: {

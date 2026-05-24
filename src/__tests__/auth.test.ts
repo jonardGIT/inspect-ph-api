@@ -142,6 +142,8 @@ describe("Auth routes", () => {
           "module:manage",
           "report:read",
           "payment:read",
+          "cap:create",
+          "cap:manage",
         ],
       },
     });
@@ -209,6 +211,7 @@ describe("Auth routes", () => {
           "permit:read",
           "inspection:read",
           "inspection:update:assigned",
+          "cap:read",
         ],
       },
     });
@@ -292,6 +295,8 @@ describe("Auth routes", () => {
             "module:manage",
             "report:read",
             "payment:read",
+            "cap:create",
+            "cap:manage",
           ],
         },
       },
@@ -343,6 +348,7 @@ describe("Auth routes", () => {
               "permit:read",
               "inspection:read",
               "inspection:update:assigned",
+              "cap:read",
             ],
           },
         },
@@ -433,7 +439,7 @@ describe("Auth routes", () => {
 
     mockAuthSessionFindUnique.mockResolvedValue({
       createdAt,
-      expiresAt: new Date("2026-05-22T08:00:00.000Z"),
+      expiresAt: new Date("2027-05-22T08:00:00.000Z"),
       id: "11111111-1111-4111-8111-111111111111",
       ipAddress: "127.0.0.1",
       lastUsedAt: createdAt,
@@ -445,7 +451,7 @@ describe("Auth routes", () => {
     mockAuthSessionFindMany.mockResolvedValue([
       {
         createdAt,
-        expiresAt: new Date("2026-05-22T08:00:00.000Z"),
+        expiresAt: new Date("2027-05-22T08:00:00.000Z"),
         id: "11111111-1111-4111-8111-111111111111",
         ipAddress: "127.0.0.1",
         lastUsedAt: createdAt,
@@ -472,7 +478,7 @@ describe("Auth routes", () => {
     expect(response.status).toBe(200);
     expect(response.body.data[0]).toEqual({
       createdAt: createdAt.toISOString(),
-      expiresAt: "2026-05-22T08:00:00.000Z",
+      expiresAt: "2027-05-22T08:00:00.000Z",
       id: "11111111-1111-4111-8111-111111111111",
       ipAddress: "127.0.0.1",
       isCurrent: true,

@@ -19,6 +19,7 @@
     "seed:dev-checklist-templates": "tsx src/scripts/seed-dev-checklist-templates.ts",
     "seed:dev-caps": "tsx src/scripts/seed-dev-caps.ts",
     "seed:dev-field-data": "tsx src/scripts/seed-dev-field-data.ts",
+    "seed:dev-role-scenario": "tsx src/scripts/seed-dev-role-scenario.ts",
     "seed:dev-buildsure": "tsx src/scripts/seed-dev-buildsure.ts",
     "seed:dev-fireguard": "tsx src/scripts/seed-dev-fireguard.ts",
     "seed:dev-marketguard": "tsx src/scripts/seed-dev-marketguard.ts",

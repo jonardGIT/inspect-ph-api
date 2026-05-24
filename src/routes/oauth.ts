@@ -15,6 +15,7 @@ import {
   listOAuthClients,
   OAUTH_SCOPES,
   registerOAuthClient,
+  validateOAuthAuthorizationRequest,
   validateOAuthToken,
 } from "../services/oauth.js";
 
@@ -168,16 +169,22 @@ router.post(
         state?: string;
       };
 
+    const requestedScopes = scope.split(" ").filter(Boolean);
+
     if (decision === "deny") {
+      const authorizationRequest = await validateOAuthAuthorizationRequest({
+        clientId: client_id,
+        redirectUri: redirect_uri,
+        requestedScope: requestedScopes,
+      });
+
       response.json({
         data: {
-          redirectUri: `${redirect_uri}?error=access_denied${state ? `&state=${encodeURIComponent(state)}` : ""}`,
+          redirectUri: `${authorizationRequest.redirectUri}?error=access_denied${state ? `&state=${encodeURIComponent(state)}` : ""}`,
         },
       });
       return;
     }
-
-    const requestedScopes = scope.split(" ").filter(Boolean);
 
     const { code, redirectUri } = await createAuthorizationCode({
       clientId: client_id,
