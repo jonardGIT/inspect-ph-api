@@ -63,6 +63,7 @@ Dashboard:
 
 ```bash
 cd /home/nhad/inspect-ph/inspect-ph-dashboard
+export NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 npm run dev
 ```
 
@@ -70,7 +71,16 @@ Mobile:
 
 ```bash
 cd /home/nhad/inspect-ph/inspect-ph-mobile
+export EXPO_PUBLIC_API_URL=http://localhost:4000/api/v1
 npm start
+```
+
+If you are opening the app on a physical device and Expo shows `Could not connect to development server`, restart Metro in tunnel mode instead:
+
+```bash
+cd /home/nhad/inspect-ph/inspect-ph-mobile
+export EXPO_PUBLIC_API_URL=http://YOUR-LAN-IP:4000/api/v1
+npm run start:tunnel
 ```
 
 API:
@@ -83,19 +93,27 @@ npm run dev
 Use the dashboard for office and admin roles.
 Use the mobile app for inspector, business owner, and citizen flows.
 
+Default local behavior:
+
+- Dashboard uses `http://localhost:4000` unless `NEXT_PUBLIC_API_BASE_URL` is set.
+- Mobile now uses `http://localhost:4000/api/v1` by default.
+- On a physical device, point `EXPO_PUBLIC_API_URL` to your machine's LAN IP instead of `localhost`.
+- If Expo cannot reach Metro on your network, use `npm run start:tunnel`.
+- Only set `EXPO_PUBLIC_USE_EXPO_HOST=true` when you explicitly want Expo's network host fallback instead of local.
+
 ## Role QA matrix
 
 Use this quick matrix before the longer checklists. Mark each row as `PASS`, `FAIL`, or `N/A` during manual QA.
 
-| Role | Primary surface | Must see | Must not see | Status |
-| --- | --- | --- | --- | --- |
-| Admin | Dashboard | Audit logs, privacy requests, users, reports, seeded scenario users | Mobile-first owner/citizen self-service UI as primary workflow | `___` |
-| LGU admin | Dashboard | LGU-scoped offices, users, inspections, issue reports, reports | Other LGUs' operational data | `___` |
-| Office supervisor | Dashboard | Inspection queue, finding/CAP state, follow-up inspection, certificate workspace | Platform-wide governance pages unless also admin | `___` |
-| Office clerk | Dashboard | Business intake, permit intake, payment confirmation, scenario inspection records | Privacy requests, sessions, platform admin pages, certificate issuance controls | `___` |
-| Inspector | Mobile | Assigned inspections, failed finding details, attachment evidence, follow-up inspection | Dashboard-only admin and intake screens, non-assigned back-office workflows | `___` |
-| Business owner | Mobile | Permit, CAP history, certificate, owner self-service timeline | Protected dashboard workspaces, other businesses' records, audit internals | `___` |
-| Citizen | Mobile | Own issue report list and status | Protected dashboard workspaces, business-owner records, other citizens' reports | `___` |
+| Role              | Primary surface | Must see                                                                                | Must not see                                                                    | Status |
+| ----------------- | --------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------ |
+| Admin             | Dashboard       | Audit logs, privacy requests, users, reports, seeded scenario users                     | Mobile-first owner/citizen self-service UI as primary workflow                  | `___`  |
+| LGU admin         | Dashboard       | LGU-scoped offices, users, inspections, issue reports, reports                          | Other LGUs' operational data                                                    | `___`  |
+| Office supervisor | Dashboard       | Inspection queue, finding/CAP state, follow-up inspection, certificate workspace        | Platform-wide governance pages unless also admin                                | `___`  |
+| Office clerk      | Dashboard       | Business intake, permit intake, payment confirmation, scenario inspection records       | Privacy requests, sessions, platform admin pages, certificate issuance controls | `___`  |
+| Inspector         | Mobile          | Assigned inspections, failed finding details, attachment evidence, follow-up inspection | Dashboard-only admin and intake screens, non-assigned back-office workflows     | `___`  |
+| Business owner    | Mobile          | Permit, CAP history, certificate, owner self-service timeline                           | Protected dashboard workspaces, other businesses' records, audit internals      | `___`  |
+| Citizen           | Mobile          | Own issue report list and status                                                        | Protected dashboard workspaces, business-owner records, other citizens' reports | `___`  |
 
 ## Dashboard checklist
 

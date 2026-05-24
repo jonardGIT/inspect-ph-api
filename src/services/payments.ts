@@ -43,6 +43,13 @@ export interface CreatePaymentInput {
   permitId: string;
 }
 
+export interface ManualPaymentReconciliationInput {
+  actorUserId: string;
+  note?: string;
+  paymentId: string;
+  status: "paid" | "failed" | "refunded";
+}
+
 export interface ListPaymentsInput {
   limit: number;
   page: number;
@@ -384,6 +391,96 @@ export async function processPaymentWebhook(input: {
       });
     }
   }
+
+  return toPublicPayment(updated);
+}
+
+export async function reconcilePaymentManually(
+  input: ManualPaymentReconciliationInput,
+): Promise<PublicPayment> {
+  const existing = await prisma.paymentRecord.findUnique({
+    include: {
+      permitRecord: {
+        include: {
+          business: {
+            select: {
+              businessName: true,
+              id: true,
+            },
+          },
+        },
+      },
+    },
+    where: { id: input.paymentId },
+  });
+
+  if (!existing) {
+    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+  }
+
+  const targetStatus = input.status.toUpperCase() as PaymentStatus;
+
+  if (existing.status === targetStatus) {
+    throw new AppError(
+      409,
+      "PAYMENT_ALREADY_IN_STATUS",
+      `Payment is already marked ${input.status}`,
+    );
+  }
+
+  if (targetStatus === "REFUNDED" && existing.status !== "PAID") {
+    throw new AppError(
+      400,
+      "PAYMENT_REFUND_REQUIRES_PAID",
+      "Only paid payments can be marked as refunded",
+    );
+  }
+
+  const note = input.note?.trim();
+  const now = new Date();
+
+  const updated = await prisma.paymentRecord.update({
+    data: {
+      failedAt: targetStatus === "FAILED" ? now : null,
+      failureReason:
+        targetStatus === "FAILED"
+          ? note || "Manually reconciled as failed"
+          : null,
+      paidAt:
+        targetStatus === "PAID"
+          ? (existing.paidAt ?? now)
+          : targetStatus === "REFUNDED"
+            ? existing.paidAt
+            : null,
+      receiptNumber:
+        targetStatus === "PAID" && !existing.receiptNumber
+          ? generateReceiptNumber()
+          : existing.receiptNumber,
+      status: targetStatus,
+    },
+    include: {
+      permitRecord: {
+        include: {
+          business: {
+            select: {
+              businessName: true,
+              id: true,
+            },
+          },
+        },
+      },
+    },
+    where: { id: existing.id },
+  });
+
+  await recordAuditLog({
+    action: "payment.status_updated",
+    actorUserId: input.actorUserId,
+    entityId: updated.id,
+    entityType: "payment",
+    summary: `Payment ${updated.referenceNumber} manually reconciled to ${input.status}`,
+    detail: note || `manual_reconcile:${input.status}`,
+  });
 
   return toPublicPayment(updated);
 }

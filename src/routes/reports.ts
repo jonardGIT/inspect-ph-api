@@ -9,6 +9,7 @@ import {
   getPaymentReconciliation,
   getTreasurerReport,
 } from "../services/reports.js";
+import { getInspectionTwinSimulation } from "../services/inspection-twin.js";
 import { getKpiReport } from "../services/kpi-report.js";
 import { getInspectorWellnessReport } from "../services/inspector-wellness.js";
 import {
@@ -201,6 +202,88 @@ router.get(
           : undefined,
       jurisdictionScope: request.jurisdictionScope,
     });
+    response.json({ data: result });
+  }),
+);
+
+router.get(
+  "/inspection-twin",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    query("fromDate")
+      .optional()
+      .isISO8601()
+      .withMessage("fromDate must be an ISO8601 date"),
+    query("toDate")
+      .optional()
+      .isISO8601()
+      .withMessage("toDate must be an ISO8601 date"),
+    query("moduleCode").optional().isString(),
+    query("officeId")
+      .optional()
+      .isUUID()
+      .withMessage("officeId must be a UUID"),
+    query("lguId").optional().isUUID().withMessage("lguId must be a UUID"),
+    query("minChecklistPassRatePct")
+      .optional()
+      .isInt({ min: 0, max: 100 })
+      .withMessage("minChecklistPassRatePct must be between 0 and 100"),
+    query("maxFailedChecklistItems")
+      .optional()
+      .isInt({ min: 0, max: 100 })
+      .withMessage("maxFailedChecklistItems must be between 0 and 100"),
+    query("failOnHighSeverity")
+      .optional()
+      .isBoolean()
+      .withMessage("failOnHighSeverity must be boolean"),
+    query("failOnCriticalSeverity")
+      .optional()
+      .isBoolean()
+      .withMessage("failOnCriticalSeverity must be boolean"),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    const result = await getInspectionTwinSimulation({
+      failOnCriticalSeverity:
+        typeof request.query.failOnCriticalSeverity === "string"
+          ? request.query.failOnCriticalSeverity === "true"
+          : true,
+      failOnHighSeverity:
+        typeof request.query.failOnHighSeverity === "string"
+          ? request.query.failOnHighSeverity === "true"
+          : false,
+      fromDate:
+        typeof request.query.fromDate === "string"
+          ? request.query.fromDate
+          : undefined,
+      jurisdictionScope: request.jurisdictionScope,
+      lguId:
+        typeof request.query.lguId === "string"
+          ? request.query.lguId
+          : undefined,
+      maxFailedChecklistItems:
+        typeof request.query.maxFailedChecklistItems === "string"
+          ? Number(request.query.maxFailedChecklistItems)
+          : 2,
+      minChecklistPassRatePct:
+        typeof request.query.minChecklistPassRatePct === "string"
+          ? Number(request.query.minChecklistPassRatePct)
+          : 85,
+      moduleCode:
+        typeof request.query.moduleCode === "string"
+          ? request.query.moduleCode
+          : undefined,
+      officeId:
+        typeof request.query.officeId === "string"
+          ? request.query.officeId
+          : undefined,
+      toDate:
+        typeof request.query.toDate === "string"
+          ? request.query.toDate
+          : undefined,
+    });
+
     response.json({ data: result });
   }),
 );

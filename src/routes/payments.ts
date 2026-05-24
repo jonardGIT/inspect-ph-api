@@ -13,6 +13,7 @@ import {
   getPublicPaymentByReferenceNumber,
   listPayments,
   processPaymentWebhook,
+  reconcilePaymentManually,
 } from "../services/payments.js";
 import { ADMIN_ROLES } from "../types/auth.js";
 
@@ -178,6 +179,35 @@ router.post(
     });
 
     response.status(201).json({ data: payment });
+  }),
+);
+
+router.patch(
+  "/:id/reconcile",
+  authenticate,
+  authorize(...ADMIN_ROLES),
+  [
+    param("id").isUUID().withMessage("id must be a valid UUID"),
+    body("status")
+      .isIn(["paid", "failed", "refunded"])
+      .withMessage("status must be paid, failed, or refunded"),
+    body("note").optional().isString(),
+    validateRequestMiddleware,
+  ],
+  asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      return;
+    }
+
+    const payment = await reconcilePaymentManually({
+      actorUserId: request.auth.sub,
+      note:
+        typeof request.body.note === "string" ? request.body.note : undefined,
+      paymentId: String(request.params["id"]),
+      status: String(request.body.status) as "paid" | "failed" | "refunded",
+    });
+
+    response.json({ data: payment });
   }),
 );
 

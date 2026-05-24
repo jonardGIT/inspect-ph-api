@@ -14,6 +14,7 @@ import {
   getCertificateHtml,
   getFireSafetyCertificateByInspection,
   getPublicCertificateVerification,
+  getPublicCertificateVerificationByToken,
   getPublicFireSafetyCertificateByNumber,
   listFireSafetyCertificates,
   listOwnCertificates,
@@ -243,6 +244,20 @@ router.get(
   asyncHandler(async (request, response) => {
     const result = await getPublicCertificateVerification(
       request.params["certificateNumber"] as string,
+    );
+    response.json({ data: result });
+  }),
+);
+
+// GET /public/verify/:token — public signed-token verification
+router.get(
+  "/public/verify/:token",
+  publicCertificateLookupRateLimiter,
+  param("token").isString().notEmpty(),
+  validateRequestMiddleware,
+  asyncHandler(async (request, response) => {
+    const result = await getPublicCertificateVerificationByToken(
+      request.params["token"] as string,
     );
     response.json({ data: result });
   }),

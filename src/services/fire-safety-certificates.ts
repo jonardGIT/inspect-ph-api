@@ -4,6 +4,7 @@ import type {
   InspectionStatus,
   Prisma,
 } from "@prisma/client";
+import jwt from "jsonwebtoken";
 import QRCode from "qrcode";
 
 import { AppError } from "../lib/errors.js";
@@ -13,9 +14,117 @@ import { enqueueWebhookEvent } from "./webhook-delivery.js";
 
 const FIREGUARD_MODULE_CODE = "FIRE";
 
+interface CertificateVerificationTokenPayload {
+  certificateNumber: string;
+  purpose: "certificate_verify";
+}
+
+function getCertificateVerificationSecret(): string {
+  const secret = process.env["JWT_SECRET"]?.trim();
+
+  if (!secret) {
+    throw new Error("Missing required environment variable: JWT_SECRET");
+  }
+
+  return secret;
+}
+
+function getPublicApiBaseUrl(): string {
+  return (
+    process.env["PUBLIC_API_URL"]?.trim() ||
+    process.env["API_BASE_URL"]?.trim() ||
+    "https://api.inspectph.gov.ph"
+  );
+}
+
+function getPublicDashboardBaseUrl(): string | undefined {
+  const raw = process.env["PUBLIC_DASHBOARD_URL"]?.trim();
+
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    return new URL(raw).toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function signCertificateVerificationToken(certificateNumber: string): string {
+  return jwt.sign(
+    {
+      certificateNumber,
+      purpose: "certificate_verify",
+    } satisfies CertificateVerificationTokenPayload,
+    getCertificateVerificationSecret(),
+    {
+      algorithm: "HS256",
+      issuer: "inspect-ph",
+      noTimestamp: false,
+      subject: certificateNumber,
+    },
+  );
+}
+
+function verifyCertificateVerificationToken(token: string): string {
+  try {
+    const decoded = jwt.verify(token, getCertificateVerificationSecret(), {
+      algorithms: ["HS256"],
+      issuer: "inspect-ph",
+    });
+
+    if (typeof decoded !== "object" || decoded === null) {
+      throw new AppError(
+        400,
+        "INVALID_CERTIFICATE_VERIFICATION_TOKEN",
+        "Certificate verification token is invalid",
+      );
+    }
+
+    const payload = decoded as Partial<CertificateVerificationTokenPayload> & {
+      sub?: string;
+    };
+
+    if (
+      payload.purpose !== "certificate_verify" ||
+      typeof payload.certificateNumber !== "string" ||
+      payload.certificateNumber !== payload.sub
+    ) {
+      throw new AppError(
+        400,
+        "INVALID_CERTIFICATE_VERIFICATION_TOKEN",
+        "Certificate verification token is invalid",
+      );
+    }
+
+    return payload.certificateNumber;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError(
+      400,
+      "INVALID_CERTIFICATE_VERIFICATION_TOKEN",
+      "Certificate verification token is invalid",
+    );
+  }
+}
+
+function buildApiVerificationUrl(token: string): string {
+  return `${getPublicApiBaseUrl()}/api/v1/fire-safety-certificates/public/verify/${encodeURIComponent(token)}`;
+}
+
 function buildVerificationUrl(certificateNumber: string): string {
-  const base = process.env["API_BASE_URL"] ?? "https://api.inspectph.gov.ph";
-  return `${base}/api/v1/fire-safety-certificates/public/${certificateNumber}/verify`;
+  const token = signCertificateVerificationToken(certificateNumber);
+  const dashboardBaseUrl = getPublicDashboardBaseUrl();
+
+  if (dashboardBaseUrl) {
+    return `${dashboardBaseUrl}/verify/${encodeURIComponent(token)}`;
+  }
+
+  return buildApiVerificationUrl(token);
 }
 
 export interface PublicFireSafetyCertificate {
@@ -684,6 +793,7 @@ export async function getPublicCertificateVerification(
   issuedAt?: string;
   expiresAt?: string;
   status?: string;
+  signatureVerified?: boolean;
 }> {
   const record = await prisma.fireSafetyCertificate.findUnique({
     where: { certificateNumber },
@@ -714,6 +824,26 @@ export async function getPublicCertificateVerification(
   };
 }
 
+export async function getPublicCertificateVerificationByToken(
+  token: string,
+): Promise<{
+  valid: boolean;
+  certificateNumber: string;
+  business?: string;
+  issuedAt?: string;
+  expiresAt?: string;
+  status?: string;
+  signatureVerified: boolean;
+}> {
+  const certificateNumber = verifyCertificateVerificationToken(token);
+  const result = await getPublicCertificateVerification(certificateNumber);
+
+  return {
+    ...result,
+    signatureVerified: result.certificateNumber === certificateNumber,
+  };
+}
+
 export async function getCertificateHtml(
   certificateId: string,
 ): Promise<string> {
@@ -740,8 +870,9 @@ export async function getCertificateHtml(
     throw new AppError(404, "NOT_FOUND", "Certificate not found");
   }
 
-  const verifyUrl =
-    record.verificationUrl ?? buildVerificationUrl(record.certificateNumber);
+  const verifyUrl = record.verificationUrl?.includes("/verify/")
+    ? record.verificationUrl
+    : buildVerificationUrl(record.certificateNumber);
 
   const qrSvg = await QRCode.toString(verifyUrl, { type: "svg" });
 
