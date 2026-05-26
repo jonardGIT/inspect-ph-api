@@ -1,0 +1,46 @@
+name: Xypes Mirror
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare sanitized mirror
+        run: npm run mirror:xypes:prepare
+
+      - name: Push mirror repository
+        env:
+          MIRROR_DIR: .xypes-mirror/xypes-inspectph-api
+          MIRROR_REPO: Xypes13/xypes-inspectph-api
+          XYPES_MIRROR_TOKEN: ${{ secrets.XYPES_MIRROR_TOKEN }}
+        run: |
+          if [[ -z "$XYPES_MIRROR_TOKEN" ]]; then
+            echo "XYPES_MIRROR_TOKEN is not configured."
+            exit 1
+          fi
+
+          cd "$MIRROR_DIR"
+          git init -b main
+          git add -A
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Mirror ${GITHUB_SHA}"
+          git remote add origin "https://x-access-token:${XYPES_MIRROR_TOKEN}@github.com/${MIRROR_REPO}.git"
+          git push --force origin main

@@ -36,7 +36,7 @@ function buildInspectionTwinWhere(
 
   const clauses: Prisma.InspectionWhereInput[] = [
     {
-      scheduledAt: {
+      completedAt: {
         gte: from,
         lte: to,
       },
@@ -103,7 +103,7 @@ export async function getInspectionTwinSimulation(
       },
     },
     orderBy: {
-      scheduledAt: "desc",
+      completedAt: "desc",
     },
     where,
   });
@@ -172,6 +172,9 @@ export async function getInspectionTwinSimulation(
       officeName: inspection.office.name,
       permitNumber: inspection.permitRecord.permitNumber,
       reasons,
+      completedAt:
+        inspection.completedAt?.toISOString() ??
+        inspection.scheduledAt.toISOString(),
       scheduledAt: inspection.scheduledAt.toISOString(),
       simulatedOutcome:
         reasons.length > 0 ? ("fail" as const) : ("pass" as const),

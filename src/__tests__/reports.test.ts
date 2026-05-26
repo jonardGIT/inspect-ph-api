@@ -73,4 +73,70 @@ describe("Reports routes", () => {
 
     expect(response.status).toBe(401);
   });
+
+  it("returns inspection twin simulation results for admins", async () => {
+    const completedAt = new Date("2026-03-18T11:30:00.000Z");
+
+    mockInspectionFindMany.mockResolvedValue([
+      {
+        business: {
+          businessName: "North Star Trading",
+          id: "business-1",
+        },
+        checklistResults: [{ status: "FAIL" }, { status: "PASS" }],
+        completedAt,
+        findings: [{ severity: "CRITICAL" }],
+        id: "inspection-1",
+        moduleCode: "FIRE",
+        office: {
+          code: "FIRE-01",
+          id: "office-1",
+          name: "Fire Safety Office",
+        },
+        permitRecord: {
+          permitNumber: "FSIC-2026-001",
+        },
+        scheduledAt: new Date("2026-01-05T08:00:00.000Z"),
+      },
+    ]);
+
+    const response = await request(app)
+      .get("/api/v1/reports/inspection-twin")
+      .query({
+        failOnCriticalSeverity: "true",
+        failOnHighSeverity: "false",
+        fromDate: "2026-03-01T00:00:00.000Z",
+        maxFailedChecklistItems: "0",
+        minChecklistPassRatePct: "80",
+        moduleCode: "FIRE",
+        officeId: "11111111-1111-4111-8111-111111111111",
+        toDate: "2026-03-31T23:59:59.999Z",
+      })
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "admin-1" })}`,
+      );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.simulatedFailedCount).toBe(1);
+    expect(response.body.data.failureRatePct).toBe(100);
+    expect(response.body.data.records[0]).toMatchObject({
+      businessName: "North Star Trading",
+      completedAt: completedAt.toISOString(),
+      permitNumber: "FSIC-2026-001",
+      simulatedOutcome: "fail",
+    });
+  });
+
+  it("rejects invalid twin simulator query values", async () => {
+    const response = await request(app)
+      .get("/api/v1/reports/inspection-twin")
+      .query({ minChecklistPassRatePct: "140" })
+      .set(
+        "Authorization",
+        `Bearer ${signAccessToken({ role: "admin", sub: "admin-1" })}`,
+      );
+
+    expect(response.status).toBe(400);
+  });
 });

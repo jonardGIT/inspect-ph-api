@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "mirror:xypes:prepare": "node scripts/xypes-mirror.mjs prepare",
     "prestart": "npm run build",
     "start": "node dist/server.js",
     "test": "jest --config jest.config.ts",

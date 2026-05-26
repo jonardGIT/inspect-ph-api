@@ -33,6 +33,13 @@ export interface PublicPermit {
   createdById?: string;
   expirationDate: string;
   id: string;
+  latestPayment?: {
+    id: string;
+    referenceNumber: string;
+    receiptNumber?: string;
+    status: "pending" | "processing" | "paid" | "failed" | "refunded";
+    updatedAt: string;
+  };
   lineOfBusiness: string;
   permitNumber: string;
   status: Lowercase<`${PermitRecord["status"]}`>;
@@ -76,6 +83,12 @@ type PermitRecordWithBusiness = Prisma.PermitRecordGetPayload<{
         id: true;
       };
     };
+    payments: {
+      orderBy: {
+        createdAt: "desc";
+      };
+      take: 1;
+    };
   };
 }>;
 
@@ -95,6 +108,8 @@ type PermitRecordWithBusinessContact = Prisma.PermitRecordGetPayload<{
 }>;
 
 function toPublicPermit(record: PermitRecordWithBusiness): PublicPermit {
+  const latestPayment = record.payments?.[0];
+
   return {
     applicationDate: record.applicationDate.toISOString(),
     business: {
@@ -105,6 +120,20 @@ function toPublicPermit(record: PermitRecordWithBusiness): PublicPermit {
     createdById: record.createdById ?? undefined,
     expirationDate: record.expirationDate.toISOString(),
     id: record.id,
+    latestPayment: latestPayment
+      ? {
+          id: latestPayment.id,
+          referenceNumber: latestPayment.referenceNumber,
+          receiptNumber: latestPayment.receiptNumber ?? undefined,
+          status: latestPayment.status.toLowerCase() as
+            | "pending"
+            | "processing"
+            | "paid"
+            | "failed"
+            | "refunded",
+          updatedAt: latestPayment.updatedAt.toISOString(),
+        }
+      : undefined,
     lineOfBusiness: record.lineOfBusiness,
     permitNumber: record.permitNumber,
     status:
@@ -184,6 +213,10 @@ export async function listPermits(input: ListPermitsInput): Promise<{
             id: true,
           },
         },
+        payments: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
       orderBy: { createdAt: "desc" },
       skip: input.skip,
@@ -234,6 +267,10 @@ export async function createPermit(
           businessName: true,
           id: true,
         },
+      },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
       },
     },
   });
@@ -354,6 +391,10 @@ export async function listOwnPermits(input: ListOwnPermitsInput): Promise<{
     prisma.permitRecord.findMany({
       include: {
         business: { select: { businessName: true, id: true } },
+        payments: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
       orderBy: { createdAt: "desc" },
       skip: input.skip,
@@ -370,7 +411,13 @@ export async function listOwnPermits(input: ListOwnPermitsInput): Promise<{
 
 export async function archivePermit(id: string): Promise<PublicPermit> {
   const record = await prisma.permitRecord.findUnique({
-    include: { business: { select: { businessName: true, id: true } } },
+    include: {
+      business: { select: { businessName: true, id: true } },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
     where: { id },
   });
 
@@ -384,7 +431,13 @@ export async function archivePermit(id: string): Promise<PublicPermit> {
 
   const updated = await prisma.permitRecord.update({
     data: { archivedAt: new Date() },
-    include: { business: { select: { businessName: true, id: true } } },
+    include: {
+      business: { select: { businessName: true, id: true } },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
     where: { id },
   });
 
@@ -393,7 +446,13 @@ export async function archivePermit(id: string): Promise<PublicPermit> {
 
 export async function getPermit(id: string): Promise<PublicPermit> {
   const record = await prisma.permitRecord.findUnique({
-    include: { business: { select: { businessName: true, id: true } } },
+    include: {
+      business: { select: { businessName: true, id: true } },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
     where: { id },
   });
 
@@ -438,7 +497,13 @@ export async function updatePermit(
         ? { permitNumber: input.permitNumber.trim() }
         : {}),
     },
-    include: { business: { select: { businessName: true, id: true } } },
+    include: {
+      business: { select: { businessName: true, id: true } },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
     where: { id },
   });
 
@@ -526,6 +591,10 @@ export async function requestPermitRenewal(input: {
     },
     include: {
       business: { select: { businessName: true, id: true } },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
     },
   });
 

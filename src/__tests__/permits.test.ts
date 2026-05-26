@@ -66,6 +66,16 @@ describe("Permit routes", () => {
         expirationDate: new Date("2027-05-12T08:00:00.000Z"),
         id: "22222222-2222-4222-8222-222222222222",
         lineOfBusiness: "Retail",
+        payments: [
+          {
+            createdAt,
+            id: "payment-1",
+            receiptNumber: "OR-20260512-ABCD1234",
+            referenceNumber: "PAY-20260512-ABCD1234",
+            status: "PAID",
+            updatedAt: createdAt,
+          },
+        ],
         permitNumber: "BPLO-2026-0001",
         status: "PENDING_INSPECTION",
         updatedAt: createdAt,
@@ -92,6 +102,13 @@ describe("Permit routes", () => {
       expirationDate: "2027-05-12T08:00:00.000Z",
       id: "22222222-2222-4222-8222-222222222222",
       lineOfBusiness: "Retail",
+      latestPayment: {
+        id: "payment-1",
+        receiptNumber: "OR-20260512-ABCD1234",
+        referenceNumber: "PAY-20260512-ABCD1234",
+        status: "paid",
+        updatedAt: createdAt.toISOString(),
+      },
       permitNumber: "BPLO-2026-0001",
       status: "pending_inspection",
       updatedAt: createdAt.toISOString(),
@@ -114,6 +131,10 @@ describe("Permit routes", () => {
             businessName: true,
             id: true,
           },
+        },
+        payments: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
         },
       },
       orderBy: { createdAt: "desc" },
@@ -296,6 +317,10 @@ describe("Permit routes", () => {
             businessName: true,
             id: true,
           },
+        },
+        payments: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
         },
       },
     });

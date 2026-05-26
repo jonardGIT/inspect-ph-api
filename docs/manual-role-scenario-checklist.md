@@ -71,15 +71,22 @@ Mobile:
 
 ```bash
 cd /home/nhad/inspect-ph/inspect-ph-mobile
-export EXPO_PUBLIC_API_URL=http://localhost:4000/api/v1
 npm start
+```
+
+Set the mobile API URL once in `.env.local` instead of exporting it each time:
+
+```bash
+cd /home/nhad/inspect-ph/inspect-ph-mobile
+cp .env.local.example .env.local
+# then set EXPO_PUBLIC_API_URL to your current LAN IP, for example:
+# EXPO_PUBLIC_API_URL="http://192.168.0.117:4000/api/v1"
 ```
 
 If you are opening the app on a physical device and Expo shows `Could not connect to development server`, restart Metro in tunnel mode instead:
 
 ```bash
 cd /home/nhad/inspect-ph/inspect-ph-mobile
-export EXPO_PUBLIC_API_URL=http://YOUR-LAN-IP:4000/api/v1
 npm run start:tunnel
 ```
 
@@ -190,6 +197,8 @@ You should verify:
 
 ## Mobile checklist
 
+Use the mobile checklist as an action script, not just a visibility check. For each role below, complete the scenario in order and mark each action as `PASS`, `FAIL`, or `N/A`.
+
 ### Inspector
 
 Login as `inspector-riverside@inspectph.dev`.
@@ -214,6 +223,19 @@ Optional action checks:
 - Open the inspection detail screen and confirm checklist, finding, and attachment sections all render.
 - Toggle airplane mode and confirm cached inspection detail still opens if the app already fetched it.
 
+Scenario actions:
+
+1. Sign in as `inspector-riverside@inspectph.dev` and wait for the inspection list to load.
+2. Confirm the list includes these three records: `00000000-0007-4000-8a11-000000009101`, `00000000-0007-4000-8a11-000000009102`, and `00000000-0007-4000-8a11-000000009103`.
+3. Open the initial failed inspection `00000000-0007-4000-8a11-000000009101`.
+4. Verify the fire checklist shows a failed result and the finding title is `Rear exit blocked by LPG storage`.
+5. Open the finding evidence or attachment section and confirm at least one attachment is visible.
+6. Return to the list and open the follow-up inspection `00000000-0007-4000-8a11-000000009102`.
+7. Verify the follow-up inspection shows a passing fire result.
+8. Return to the list and open the scheduled sanitation follow-up `00000000-0007-4000-8a11-000000009103`.
+9. Verify it remains in `SCHEDULED` state and is not incorrectly marked completed.
+10. Optional offline action: after opening any inspection detail once, enable airplane mode and reopen that same detail to confirm the cached record still renders.
+
 ### Business owner
 
 Login as `owner-riverside@inspectph.dev`.
@@ -231,6 +253,15 @@ You should verify:
 - The CAP is visible and resolved.
 - The account is linked to Riverside Food Hub.
 
+Scenario actions:
+
+1. Sign in as `owner-riverside@inspectph.dev`.
+2. Open the owner permit or business records surface and locate permit `SCN-TUG-2026-0001`.
+3. Confirm the permit belongs to `Riverside Food Hub` and is visible without switching accounts or scopes.
+4. Open the certificate view and verify `FSIC-SCN-TUG-2026-0001` is present.
+5. Open the CAP or corrective action history related to the blocked rear-exit finding.
+6. Verify the CAP is marked resolved and that the owner account is linked to Riverside Food Hub data only.
+
 ### Citizen
 
 Login as `citizen-riverside@inspectph.dev`.
@@ -245,6 +276,15 @@ You should verify:
 - The issue report category is fire-related.
 - The status is still `SUBMITTED`.
 - The location description references the rear service alley beside Riverside Food Hub.
+
+Scenario actions:
+
+1. Sign in as `citizen-riverside@inspectph.dev`.
+2. Open the citizen issue-report history screen.
+3. Select report `IR-SCN-TUG-0001`.
+4. Verify the category is fire-related and the status remains `SUBMITTED`.
+5. Confirm the location description references the rear service alley beside Riverside Food Hub.
+6. Confirm no protected business-owner or dashboard-only data is visible from the citizen account.
 
 ## Cross-role outcome checklist
 
