@@ -7,7 +7,16 @@ import { transform } from "esbuild";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
-const outputDir = path.join(repoRoot, ".xypes-mirror", "xypes-inspectph-api");
+const defaultMirrorRoot = path.resolve(
+  repoRoot,
+  "..",
+  "..",
+  "inspect-ph-mirror",
+);
+const mirrorRoot = process.env.XYPES_MIRROR_ROOT?.trim()
+  ? path.resolve(process.env.XYPES_MIRROR_ROOT)
+  : defaultMirrorRoot;
+const outputDir = path.join(mirrorRoot, "xypes-inspectph-api");
 
 async function run(command, args, cwd = repoRoot) {
   await new Promise((resolve, reject) => {
