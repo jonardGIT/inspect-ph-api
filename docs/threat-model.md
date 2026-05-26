@@ -1,4 +1,4 @@
-# Threat Model — InspectPH API
+# Threat Model — Inspect PH API
 
 **Date:** May 2026  
 **Scope:** API, Dashboard, Mobile (Expo)  
